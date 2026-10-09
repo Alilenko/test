@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+body{margin:0;font-family:Arial,sans-serif;font-size:16px;color:#454545;background:#f7f7f7}
+.section_store-locator{padding:16px}
+.store-locator_component{display:grid;grid-template-columns:1fr 1fr;gap:5rem}
+@media (max-width:991px){.store-locator_component{grid-template-columns:1fr;gap:2rem}}
+.store-locator_map-wrapper{position:relative;height:45.875rem;border-radius:2rem;overflow:hidden}
+@media (max-width:991px){.store-locator_map-wrapper{height:32rem}}
+@media (max-width:767px){.store-locator_map-wrapper{height:24rem;border-radius:1rem}}
+.store-locator_map{position:absolute;inset:0;width:100%;height:100%}
+.anfahrt_store{display:flex;gap:1rem;padding:1.5rem;border-radius:.5rem;background:#fff}
+.anfahrt_store-logo{width:5rem}.anfahrt_store-title{color:#224385;font-weight:700;font-size:1.125rem}
+.text-size-small{font-size:.875rem}.button.is-link{display:flex;align-items:center;gap:.5rem;color:#224385;text-decoration:none}
+.product-listing_fields{display:none}.filter-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:10}
+</style></head><body>
+<section class="section_store-locator" data-store-locator data-mapbox-token="pk.eyJ1IjoiYnVyZ2lzLXRlc3QiLCJhIjoidGVzdCJ9.test-signature" data-mapbox-tileset="alilenko.c0lydd0splxg" data-mapbox-style="mapbox://styles/mapbox/light-v11" data-factory-lnglat="11.4620,49.2800">
+<div class="store-locator_component">
+ <div class="store-locator_map-wrapper"><div class="store-locator_map" data-store-map></div></div>
+ <div class="store-locator_content">
+  <input data-store-search placeholder="PLZ oder Ort"><button data-store-submit>Märkte finden</button><button data-store-reset class="store-locator_reset">Zurücksetzen</button>
+  <button data-store-list-open hidden>Märkte als Liste anzeigen</button><p data-store-message aria-live="polite"></p>
+  <div class="anfahrt_store is-white" data-store-factory><img class="anfahrt_store-logo" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2280%22 height=%2280%22%3E%3Crect width=%2280%22 height=%2280%22 fill=%22%23ddd%22/%3E%3C/svg%3E" alt=""><div class="anfahrt_store-content"><p class="anfahrt_store-title">Werksverkauf Neumarkt — rund um die Uhr</p><p class="text-size-small">Der Knödel-Retter am Kartoffelweg 1 gibt Knödel auch außerhalb der Öffnungszeiten aus.</p><p class="text-size-small">Burgis GmbH, Kartoffelweg 1, 92318 Neumarkt</p><a class="button is-link is-icon" href="#"><p class="text-size-small">Route planen</p><span>›</span></a></div></div>
+ </div>
+</div>
+<div class="product-listing_fields" data-store-templates><div class="anfahrt_store is-card" data-store-card><img class="anfahrt_store-logo" data-store-logo alt=""><div class="anfahrt_store-content"><p class="anfahrt_store-title" data-store-name>Markt</p><p class="text-size-small" data-store-street>S</p><p class="text-size-small" data-store-city>C</p><p class="text-size-small" data-store-phone>T</p><a class="button is-link is-icon" data-store-route target="_blank"><p class="text-size-small">Route planen</p><span>›</span></a></div></div></div>
+<div class="filter-modal" data-store-modal role="dialog" aria-modal="true" aria-labelledby="store-modal-title"><p id="store-modal-title">Märkte</p><button data-store-close>x</button><div class="store-locator_list" data-store-list></div></div>
+</section>
+<!--EMBED-->
+</body></html>

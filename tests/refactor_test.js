@@ -16,18 +16,18 @@ function setup(opts={}){
  const dom=new JSDOM(html,{runScripts:'outside-only',url:'https://burgis.webflow.io/'});
  const w=dom.window;const T={w,d:w.document,calls:[],fetches:[],logs:[],scripts:0};
  w.console={info:m=>T.logs.push(m),warn:m=>T.logs.push('WARN '+m),log(){},error(){}};
- class Map{constructor(o){T.map=this;this.h={};this.layers=[];T.calls.push('newMap')} addControl(){} resize(){} addImage(){} addSource(){}
+ class Map{isMoving(){return false} once(){} panBy(d){(T.pans=T.pans||[]).push(d)} constructor(o){T.map=this;this.h={};this.layers=[];T.calls.push('newMap')} addControl(){} resize(){} addImage(){} addSource(){}
   addLayer(l){this.layers.push(l.id)} getLayer(id){return this.layers.includes(id)} on(ev,a,b){const k=b?ev+':'+a:ev;(this.h[k]=this.h[k]||[]).push(b||a)}
   fire(k,e){(this.h[k]||[]).forEach(f=>f(e||{}))} queryRenderedFeatures(){return []} getCanvas(){return{style:{}}}
   flyTo(o){T.calls.push('flyTo '+JSON.stringify(o.center))} fitBounds(b){T.calls.push('fitBounds '+b.b.length)} remove(){T.calls.push('mapRemove')}}
  const gl={Map,NavigationControl:class{},Marker:class{setLngLat(c){this.c=c;return this}addTo(){T.calls.push('marker '+this.c);return this}remove(){}},
-  Popup:class{setLngLat(c){this.c=c;return this}setDOMContent(n){this.n=n;return this}addTo(){T.calls.push('popup '+this.n.textContent.trim().replace(/\s+/g,' '));T.lastPopup=this.n;return this}remove(){}},
+  Popup:class{getElement(){if(!this._el){this._el=w.document.createElement('div');this._el.innerHTML='<div class="mapboxgl-popup-content"></div>';}return this._el}setLngLat(c){this.c=c;return this}setDOMContent(n){this.n=n;return this}addTo(){T.calls.push('popup '+this.n.textContent.trim().replace(/\s+/g,' '));T.lastPopup=this.n;return this}remove(){}},
   LngLatBounds:class{constructor(a){this.b=[a]}extend(p){this.b.push(p)}}};
  T.gl=gl;
  // intercept script injection
  const orig=w.document.head.appendChild.bind(w.document.head);
  w.document.head.appendChild=(el)=>{if(el.tagName==='SCRIPT'){T.scripts++;T.lastScript=el;} return orig(el);};
- w.Path2D=class{};w.IntersectionObserver=class{constructor(cb){T.io=cb} observe(){} disconnect(){}};
+ w.Path2D=class{};w.requestAnimationFrame=cb=>setTimeout(cb,0);w.IntersectionObserver=class{constructor(cb){T.io=cb} observe(){} disconnect(){}};
  w.HTMLCanvasElement.prototype.getContext=()=>new Proxy({getImageData:()=>({})},{get:(t,k)=>k in t?t[k]:()=>{}});
  T.responders=[];
  w.fetch=(url,o)=>{const kind=url.includes('geocode')?'geo':url.includes('tilequery')?'tq':'tj';T.fetches.push({kind,url});

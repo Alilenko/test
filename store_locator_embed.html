@@ -9,9 +9,10 @@
 .store-locator_list .anfahrt_store.is-card:has([data-store-name]:focus-visible){outline:2px solid #224385;outline-offset:2px}
 .store-locator_list [data-store-name]:focus-visible{outline:none}
 }
+.store-locator_popup{z-index:3} /* above the zoom buttons, so the close button is never covered */
 .store-locator_popup .mapboxgl-popup-content{min-width:15rem;padding:0;border-radius:.5rem;box-shadow:0 4px 16px rgba(0,0,0,.15)}
 .store-locator_popup .mapboxgl-popup-tip{border-width:6px}
-.store-locator_popup .anfahrt_store{position:relative;display:flex;flex-direction:column;align-items:flex-start;row-gap:.75rem;padding:.75rem;background-color:#fff;border:0;cursor:default}
+.store-locator_popup .anfahrt_store{position:relative;display:flex;flex-direction:column;align-items:flex-start;row-gap:.75rem;padding:.75rem;background-color:#fff;border:0;border-radius:inherit;cursor:default;max-height:inherit;overflow-y:auto;overscroll-behavior:contain} /* scrolls inside, close button stays */
 .store-locator_popup .anfahrt_store-logo{width:2.875rem;height:2.875rem;object-fit:contain}
 .store-locator_popup .anfahrt_store-content{display:flex;flex-direction:column;row-gap:.25rem}
 .store-locator_popup .anfahrt_store-content>*{margin:0}
@@ -258,10 +259,40 @@
     instance.on('mouseleave', layer, function(){ instance.getCanvas().style.cursor = ''; });
   };
 
+  /* Popups must stay inside the map: their size is capped to the map, and the map pans until the whole card is visible */
+  var POPUP_GAP = 12;      /* minimum distance between popup and map edge, px */
+  var POPUP_MAX = 320;     /* 20rem */
+  var POPUP_MIN = 240;     /* 15rem */
+  var PIN_ROOM = 40;       /* space kept below the popup for the pin itself */
+
+  var fitPopup = function(current){
+    if (!map || popup !== current) return;
+    if (map.isMoving()) { map.once('moveend', function(){ fitPopup(current); }); return; }
+    var box = mapEl.getBoundingClientRect();
+    var rect = current.getElement().getBoundingClientRect();
+    var dx = 0, dy = 0;
+    if (rect.left < box.left + POPUP_GAP) dx = rect.left - (box.left + POPUP_GAP);
+    else if (rect.right > box.right - POPUP_GAP) dx = rect.right - (box.right - POPUP_GAP);
+    if (rect.top < box.top + POPUP_GAP) dy = rect.top - (box.top + POPUP_GAP);
+    else if (rect.bottom > box.bottom - POPUP_GAP) dy = rect.bottom - (box.bottom - POPUP_GAP);
+    if (dx || dy) map.panBy([dx, dy], { duration: 300 });
+  };
+
   var showPopup = function(lngLat, content, offset){
     if (popup) popup.remove();
-    popup = new window.mapboxgl.Popup({ offset: offset, maxWidth: '20rem', className: 'store-locator_popup', focusAfterOpen: false })
-      .setLngLat(lngLat).setDOMContent(content).addTo(map);
+    var width = mapEl.clientWidth - 2 * POPUP_GAP;
+    var height = mapEl.clientHeight - 2 * POPUP_GAP - offset - PIN_ROOM;
+    var current = new window.mapboxgl.Popup({
+      offset: offset, anchor: 'bottom', className: 'store-locator_popup', focusAfterOpen: false,
+      maxWidth: Math.max(160, Math.min(POPUP_MAX, width)) + 'px'
+    }).setLngLat(lngLat).setDOMContent(content).addTo(map);
+    var box = current.getElement().querySelector('.mapboxgl-popup-content');
+    if (box) {
+      box.style.minWidth = Math.max(160, Math.min(POPUP_MIN, width)) + 'px';
+      box.style.maxHeight = Math.max(120, height) + 'px'; /* the card inherits it and scrolls inside */
+    }
+    popup = current;
+    window.requestAnimationFrame(function(){ fitPopup(current); });
   };
 
   var openPopup = function(store){
