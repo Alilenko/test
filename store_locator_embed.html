@@ -1,0 +1,546 @@
+<style>
+.section_store-locator [hidden]{display:none !important}
+.section_store-locator .filter-modal.is-open{display:flex}
+.store-locator_reset.is-visible{display:block}
+.store-locator_list .anfahrt_store.is-card{width:100%;text-align:left}
+.store-locator_list .anfahrt_store.is-card:hover,.store-locator_list .anfahrt_store.is-card.is-active{border-color:#ffe300;background-color:#f2f2f2}
+.store-locator_list .anfahrt_store.is-card:focus-visible{outline:2px solid #224385;outline-offset:2px}
+.store-locator_popup .mapboxgl-popup-content{min-width:15rem;padding:0;border-radius:.5rem;box-shadow:0 4px 16px rgba(0,0,0,.15)}
+.store-locator_popup .mapboxgl-popup-tip{border-width:6px}
+.store-locator_popup .anfahrt_store{position:relative;display:flex;flex-direction:column;align-items:flex-start;row-gap:.75rem;padding:.75rem;background-color:#fff;border:0;cursor:default}
+.store-locator_popup .anfahrt_store-logo{width:2.875rem;height:2.875rem;object-fit:contain}
+.store-locator_popup .anfahrt_store-content{display:flex;flex-direction:column;row-gap:.25rem}
+.store-locator_popup .anfahrt_store-content>*{margin:0}
+.store-locator_popup .anfahrt_store-title{margin-bottom:.5rem;padding-right:1.5rem;color:#224385;font-size:1rem;font-weight:600;line-height:1.5}
+.store-locator_popup .anfahrt_store-logo+.anfahrt_store-content .anfahrt_store-title{padding-right:0}
+.store-locator_popup .text-size-small{color:#454545;font-size:.875rem;line-height:1.5}
+.store-locator_popup .button.is-link{margin-top:.25rem;padding:0;color:#224385}
+.store-locator_popup .button.is-link .text-size-small{color:inherit}
+.store-locator_popup .mapboxgl-popup-close-button{top:1.5rem;right:.75rem;width:1rem;height:1rem;padding:0;font-size:1.25rem;line-height:1rem;color:#224385;transform:translateY(-50%)}
+.store-locator_popup .mapboxgl-popup-close-button:hover{background-color:transparent;opacity:.7}
+.store-locator_popup .mapboxgl-popup-close-button:focus-visible{outline:2px solid #224385;outline-offset:2px}
+.store-locator_popup .mapboxgl-popup-content:has(.anfahrt_store-logo) .mapboxgl-popup-close-button{top:2.1875rem}
+.store-locator_map.mapboxgl-map{position:absolute;inset:0;width:100%;height:100%}
+.store-locator_map .mapboxgl-ctrl-group{border-radius:.5rem}
+.store-locator_map-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:2rem;text-align:center;color:#454545}
+</style>
+
+<script>
+/* Händler finden: Mapbox store locator.
+   Settings on [data-store-locator]: data-mapbox-token (public pk. token), data-mapbox-tileset, data-mapbox-style, data-factory-lnglat ("lng,lat").
+   Stores come from the Mapbox tileset (CSV columns: id, name, chain, strasse, hausnummer, plz, ort, telefon, latitude, longitude).
+   "chain" must match the slug of a Händler CMS item — its logo is shown in the popup and the list. */
+(function(){
+  var root = document.querySelector('[data-store-locator]');
+  if (!root || root.hasAttribute('data-store-init')) return;
+  root.setAttribute('data-store-init', '');
+
+  var log = function(text){ if (window.console) console.info('[Händler finden] ' + text); };
+  var warn = function(text){ if (window.console) console.warn('[Händler finden] ' + text); };
+
+  var TOKEN = (root.getAttribute('data-mapbox-token') || '').trim();
+  var TILESET = (root.getAttribute('data-mapbox-tileset') || '').trim();
+  var STYLE = root.getAttribute('data-mapbox-style') || 'mapbox://styles/mapbox/light-v11';
+  var GL_URL = 'https://api.mapbox.com/mapbox-gl-js/v3.9.4/';
+  var START = { center: [10.45, 51.1], zoom: 5 };
+  var LIST_LIMIT = 50; /* Tilequery maximum */
+  var RADIUS_NEAR = 50000, RADIUS_FAR = 200000;
+
+  var MSG = {
+    loadError: 'Die Karte konnte nicht geladen werden. Bitte später erneut versuchen.',
+    searchError: 'Die Suche ist gerade nicht möglich. Bitte später erneut versuchen.',
+    notFound: 'Diese PLZ oder dieser Ort wurde nicht gefunden.',
+    empty: 'Bitte PLZ oder Ort eingeben.',
+    searching: 'Märkte werden gesucht …',
+    none: 'In der Nähe wurden keine Märkte gefunden.'
+  };
+
+  var q = function(selector, scope){ return (scope || root).querySelector(selector); };
+  var forEach = function(nodes, fn){ Array.prototype.forEach.call(nodes, fn); };
+  var mapEl = q('[data-store-map]');
+  var input = q('[data-store-search]');
+  var submit = q('[data-store-submit]');
+  var reset = q('[data-store-reset]');
+  var listOpen = q('[data-store-list-open]');
+  var message = q('[data-store-message]');
+  var modal = q('[data-store-modal]');
+  var listEl = q('[data-store-list]');
+  var template = q('[data-store-templates] [data-store-card]');
+  var factoryCard = q('[data-store-factory]');
+  if (!mapEl || !template) return;
+
+  var say = function(text){ if (message) message.textContent = text || ''; };
+  if (message && !message.hasAttribute('aria-live')) message.setAttribute('aria-live', 'polite');
+  say('');
+
+  if (!TOKEN || !TILESET) { say('Karte nicht konfiguriert.'); warn('data-mapbox-token / data-mapbox-tileset fehlen'); return; }
+  /* Only public tokens may ever reach the browser */
+  if (TOKEN.indexOf('pk.') !== 0) { say('Karte nicht konfiguriert.'); warn('data-mapbox-token muss ein öffentlicher Token (pk.) sein'); return; }
+  if (!/^[\w.-]+$/.test(TILESET)) { say('Karte nicht konfiguriert.'); warn('data-mapbox-tileset ist ungültig'); return; }
+
+  /* ---------- Data helpers ---------- */
+
+  var toLngLat = function(lng, lat){
+    lng = Number(lng); lat = Number(lat);
+    if (!isFinite(lng) || !isFinite(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) return null;
+    return [lng, lat];
+  };
+  var text = function(v){ return v == null ? '' : String(v).trim(); };
+
+  var FACTORY = (function(){
+    var parts = (root.getAttribute('data-factory-lnglat') || '').split(',');
+    return parts.length === 2 ? toLngLat(parts[0], parts[1]) : null;
+  })();
+
+  var safeUrl = function(src){
+    try {
+      var url = new URL(src, window.location.href);
+      return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : '';
+    } catch (e) { return ''; }
+  };
+
+  /* Chain logos from the Händler CMS list, keyed by lower-case slug */
+  var chains = new Map();
+  forEach(root.querySelectorAll('[data-chain]'), function(el){
+    var slugEl = q('[data-chain-slug]', el);
+    var img = q('img', el);
+    var slug = slugEl ? text(slugEl.textContent).toLowerCase() : '';
+    if (!slug || chains.has(slug)) return;
+    var src = img && !img.classList.contains('w-dyn-bind-empty') ? safeUrl(img.currentSrc || img.getAttribute('src') || '') : '';
+    chains.set(slug, src ? { src: src, alt: img.getAttribute('alt') || '' } : null);
+  });
+
+  var toStore = function(feature){
+    if (!feature || !feature.geometry || !Array.isArray(feature.geometry.coordinates)) return null;
+    var lngLat = toLngLat(feature.geometry.coordinates[0], feature.geometry.coordinates[1]);
+    if (!lngLat) return null;
+    var p = feature.properties || {};
+    var plz = text(p.plz);
+    if (/^\d{4}$/.test(plz)) plz = '0' + plz; /* CSV import turns 01067 into 1067 */
+    return {
+      id: text(p.id),
+      name: text(p.name),
+      chain: text(p.chain).toLowerCase(),
+      street: [text(p.strasse), text(p.hausnummer)].filter(Boolean).join(' '),
+      city: [plz, text(p.ort)].filter(Boolean).join(' '),
+      phone: text(p.telefon),
+      lngLat: lngLat
+    };
+  };
+
+  /* Cloned Webflow templates must not duplicate HTML ids */
+  var stripIds = function(node){
+    node.removeAttribute('id');
+    forEach(node.querySelectorAll('[id]'), function(el){ el.removeAttribute('id'); });
+    return node;
+  };
+
+  var fillCard = function(card, store){
+    var set = function(selector, value){
+      var el = q(selector, card);
+      if (!el) return;
+      if (value) el.textContent = value; else el.remove();
+    };
+    set('[data-store-name]', store.name);
+    set('[data-store-street]', store.street);
+    set('[data-store-city]', store.city);
+    set('[data-store-phone]', store.phone);
+    var logo = q('[data-store-logo]', card);
+    var chain = chains.get(store.chain);
+    if (logo) {
+      if (chain) { logo.src = chain.src; logo.alt = chain.alt; } else logo.remove();
+    }
+    var route = q('[data-store-route]', card);
+    if (route) route.href = 'https://www.google.com/maps/dir/?api=1&destination=' + store.lngLat[1] + ',' + store.lngLat[0];
+    return card;
+  };
+
+  var makeCard = function(store){ return fillCard(stripIds(template.cloneNode(true)), store); };
+
+  /* ---------- Marker image ---------- */
+
+  /* Yellow pin with the Burgis tower (24x24 SVG path), drawn once at 2x for sharp rendering */
+  var TOWER_PATH = 'M21.2596 2.68038C21.9777 2.7088 22.7136 2.70644 23.4335 2.71214C23.4829 3.81021 23.4498 5.11818 23.4488 6.23161L23.4445 14.5409C21.9103 14.0807 21.0973 13.981 19.5012 14.2818C15.6895 15 12.731 17.0868 10.5679 20.2597C7.88385 18.542 5.17746 17.4862 1.95889 18.0044C1.53807 18.0722 1.10343 18.126 0.680176 18.1883V2.68018C1.26385 2.72131 2.23013 2.70408 2.84173 2.71026C2.85868 3.24766 2.59988 4.93073 3.75257 4.37381C4.08015 4.05102 3.95627 3.23689 3.96239 2.69609L5.98818 2.71061C6.00118 3.04236 5.89078 4.14856 6.18251 4.31558C7.37806 4.99986 7.12392 3.28448 7.12656 2.70797C7.87864 2.68775 8.66685 2.70422 9.42179 2.70873C9.46521 5.21114 9.40998 7.77121 9.43645 10.2874L14.6468 10.2938C14.752 7.81352 14.6467 5.20217 14.7016 2.70067L16.9432 2.70283C16.9496 3.28698 16.7731 3.9293 17.1167 4.34511C17.4871 4.58057 18.0099 4.46211 18.0581 4.02795C18.1005 3.64625 18.0636 3.07842 18.0582 2.6899L20.1202 2.70706C20.1392 3.26684 19.9658 3.94034 20.2899 4.33851C20.5274 4.49893 20.9314 4.51998 21.111 4.29189C21.3696 3.96355 21.2643 3.09203 21.2596 2.68038Z';
+  var pinImage = function(){
+    var size = 68, r = 16, canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffe300';
+    ctx.beginPath();
+    ctx.moveTo(r, 0); ctx.arcTo(size, 0, size, size, r); ctx.arcTo(size, size, 0, size, r);
+    ctx.arcTo(0, size, 0, 0, r); ctx.arcTo(0, 0, size, 0, r); ctx.closePath(); ctx.fill();
+    if (window.Path2D) {
+      var scale = 1.75; /* 24px icon -> 42px inside the 68px pin, centred on the tower shape */
+      ctx.save();
+      ctx.translate((size - 24 * scale) / 2, size / 2 - 11.47 * scale);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#0B4887';
+      ctx.fill(new window.Path2D(TOWER_PATH));
+      ctx.restore();
+    }
+    return ctx.getImageData(0, 0, size, size);
+  };
+
+  /* ---------- Requests ---------- */
+
+  /* Errors carry a kind, never the request URL (it contains the token) */
+  var fail = function(kind, detail){ var err = new Error(kind); err.kind = kind; err.detail = detail; return err; };
+  var isAbort = function(err){ return err && (err.name === 'AbortError' || err.kind === 'aborted'); };
+
+  var getJson = function(url, name, signal){
+    return fetch(url, signal ? { signal: signal } : undefined)
+      .catch(function(err){ throw isAbort(err) ? err : fail('network', name); })
+      .then(function(res){
+        if (!res.ok) throw fail('http', name + ' HTTP ' + res.status);
+        return res.json().catch(function(){ throw fail('invalid', name + ': keine gültige JSON-Antwort'); });
+      });
+  };
+
+  var reportError = function(err, context){
+    if (isAbort(err)) return;
+    warn(context + ': ' + ((err && err.detail) || (err && err.message) || 'unbekannter Fehler'));
+  };
+
+  /* ---------- Mapbox library + map lifecycle ---------- */
+
+  var libraryPromise = null, mapPromise = null;
+  var map = null, popup = null, searchMarker = null;
+
+  /* One shared promise: repeated calls reuse it; after a failure the next call retries */
+  var loadLibrary = function(){
+    if (window.mapboxgl) return Promise.resolve(window.mapboxgl);
+    if (libraryPromise) return libraryPromise;
+    libraryPromise = new Promise(function(resolve, reject){
+      if (!document.querySelector('link[data-mapbox-css]')) {
+        var css = document.createElement('link');
+        css.rel = 'stylesheet'; css.href = GL_URL + 'mapbox-gl.css'; css.setAttribute('data-mapbox-css', '');
+        document.head.appendChild(css);
+      }
+      var old = document.querySelector('script[data-mapbox-js]');
+      if (old) old.remove();
+      var js = document.createElement('script');
+      js.src = GL_URL + 'mapbox-gl.js';
+      js.async = true;
+      js.setAttribute('data-mapbox-js', '');
+      js.onload = function(){ window.mapboxgl ? resolve(window.mapboxgl) : reject(fail('library', 'mapboxgl fehlt nach dem Laden')); };
+      js.onerror = function(){ reject(fail('library', 'mapbox-gl.js konnte nicht geladen werden')); };
+      document.head.appendChild(js);
+    }).then(function(gl){ log('Mapbox GL geladen'); return gl; }, function(err){
+      libraryPromise = null; /* allow a controlled retry */
+      throw err;
+    });
+    return libraryPromise;
+  };
+
+  var pointer = function(layer){
+    map.on('mouseenter', layer, function(){ map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', layer, function(){ map.getCanvas().style.cursor = ''; });
+  };
+
+  var showPopup = function(lngLat, content, offset){
+    if (popup) popup.remove();
+    popup = new window.mapboxgl.Popup({ offset: offset, maxWidth: '20rem', className: 'store-locator_popup', focusAfterOpen: false })
+      .setLngLat(lngLat).setDOMContent(content).addTo(map);
+  };
+
+  var openPopup = function(store){
+    if (!map || !store) return;
+    var card = makeCard(store);
+    card.classList.remove('is-card');
+    card.removeAttribute('tabindex');
+    card.removeAttribute('role');
+    showPopup(store.lngLat, card, 21);
+  };
+
+  var openFactory = function(){
+    if (!map || !factoryCard || !FACTORY) return;
+    var card = stripIds(factoryCard.cloneNode(true));
+    card.removeAttribute('data-store-factory');
+    showPopup(FACTORY, card, 24);
+  };
+
+  var addStoreLayer = function(){
+    return getJson('https://api.mapbox.com/v4/' + TILESET + '.json?secure&access_token=' + encodeURIComponent(TOKEN), 'TileJSON')
+      .then(function(tilejson){
+        var layer = tilejson && Array.isArray(tilejson.vector_layers) && tilejson.vector_layers[0] && tilejson.vector_layers[0].id;
+        if (!layer) throw fail('invalid', 'TileJSON ohne vector_layers');
+        var before = map.getLayer('werksverkauf') ? 'werksverkauf' : undefined; /* factory pin stays on top */
+        map.addSource('maerkte', { type: 'vector', url: 'mapbox://' + TILESET });
+        map.addLayer({
+          id: 'maerkte', type: 'symbol', source: 'maerkte', 'source-layer': layer,
+          layout: {
+            'icon-image': 'burgis-pin',
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.6, 10, 1],
+            'icon-allow-overlap': ['step', ['zoom'], false, 9, true],
+            'icon-padding': 1
+          }
+        }, before);
+        /* A click on the Werksverkauf pin must not also open the store underneath */
+        map.on('click', 'maerkte', function(e){
+          if (map.getLayer('werksverkauf') && map.queryRenderedFeatures(e.point, { layers: ['werksverkauf'] }).length) return;
+          var store = e.features && e.features[0] ? toStore(e.features[0]) : null;
+          if (store) openPopup(store);
+        });
+        pointer('maerkte');
+        log('Tileset geladen (Layer ' + layer + ')');
+      });
+  };
+
+  /* Resolves with the map once its style has loaded; created at most once */
+  var whenMap = function(){
+    if (mapPromise) return mapPromise;
+    mapPromise = loadLibrary().then(function(gl){
+      return new Promise(function(resolve, reject){
+        gl.accessToken = TOKEN;
+        var instance;
+        try {
+          instance = new gl.Map({ container: mapEl, style: STYLE, center: START.center, zoom: START.zoom, cooperativeGestures: true });
+        } catch (e) { reject(fail('map', 'Karte konnte nicht erstellt werden')); return; }
+        map = instance;
+        map.addControl(new gl.NavigationControl({ showCompass: false }), 'top-right');
+        var loaded = false;
+        map.on('error', function(e){
+          var status = e && e.error && e.error.status;
+          warn('Kartenfehler' + (status ? ' (HTTP ' + status + ')' : ''));
+          /* Tile/source errors are not fatal; an error before 'load' without a source means the style failed */
+          if (!loaded && !(e && e.sourceId)) { loaded = true; reject(fail('map', 'Kartenstil konnte nicht geladen werden')); }
+        });
+        map.on('load', function(){
+          if (loaded) return;
+          loaded = true;
+          try {
+            map.resize();
+            map.addImage('burgis-pin', pinImage(), { pixelRatio: 2 });
+            if (FACTORY) {
+              map.addSource('werksverkauf', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: FACTORY }, properties: {} } });
+              map.addLayer({ id: 'werksverkauf', type: 'symbol', source: 'werksverkauf', layout: { 'icon-image': 'burgis-pin', 'icon-size': 1.15, 'icon-allow-overlap': true } });
+              map.on('click', 'werksverkauf', openFactory);
+              pointer('werksverkauf');
+            }
+          } catch (e) { reject(fail('map', 'Kartenebenen konnten nicht angelegt werden')); return; }
+          addStoreLayer().catch(function(err){ reportError(err, 'Tileset'); say(MSG.loadError); });
+          resolve(map);
+        });
+      });
+    }).catch(function(err){
+      reportError(err, 'Karte');
+      say(MSG.loadError);
+      mapPromise = null; /* a later search may retry */
+      if (map) { try { map.remove(); } catch (e) {} map = null; }
+      throw err;
+    });
+    return mapPromise;
+  };
+
+  /* Map updates that arrive before the map is ready are kept and applied once it is */
+  var pendingView = null;
+  var applyView = function(view){
+    pendingView = view;
+    whenMap().then(function(){
+      if (pendingView !== view) return; /* superseded by a newer search or reset */
+      pendingView = null;
+      view();
+    }).catch(function(){});
+  };
+
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function(entries){
+      if (entries.some(function(e){ return e.isIntersecting; })) { io.disconnect(); whenMap().catch(function(){}); }
+    }, { rootMargin: '300px' });
+    io.observe(root);
+  } else whenMap().catch(function(){});
+  log('Skript gestartet, Karte lädt beim Scrollen');
+
+  /* ---------- Search: geocode PLZ / place, then nearest stores via Tilequery ---------- */
+
+  var stores = [];
+  var searchId = 0, searchController = null, activeQuery = '';
+
+  var geocode = function(value, signal){
+    return getJson('https://api.mapbox.com/search/geocode/v6/forward?q=' + encodeURIComponent(value) + '&country=de&language=de&limit=1&types=postcode,place,locality,district,address&access_token=' + encodeURIComponent(TOKEN), 'Geocoding', signal)
+      .then(function(json){
+        var hit = json && Array.isArray(json.features) ? json.features[0] : null;
+        var center = hit && hit.geometry && Array.isArray(hit.geometry.coordinates) ? toLngLat(hit.geometry.coordinates[0], hit.geometry.coordinates[1]) : null;
+        if (!center) throw fail('not-found');
+        return center;
+      });
+  };
+
+  var nearby = function(center, radius, signal){
+    return getJson('https://api.mapbox.com/v4/' + TILESET + '/tilequery/' + center[0] + ',' + center[1] + '.json?radius=' + radius + '&limit=' + LIST_LIMIT + '&geometry=point&access_token=' + encodeURIComponent(TOKEN), 'Tilequery', signal)
+      .then(function(json){
+        if (!json || !Array.isArray(json.features)) throw fail('invalid', 'Tilequery: unerwartete Antwort');
+        return json.features.map(toStore).filter(Boolean);
+      });
+  };
+
+  var setSearched = function(active){
+    if (submit) submit.hidden = active;
+    if (listOpen) listOpen.hidden = !active;
+    if (reset) reset.classList.toggle('is-visible', active);
+  };
+  setSearched(false);
+
+  var resultMessage = function(count, radius){
+    if (!count) return MSG.none;
+    if (count >= LIST_LIMIT) return 'Die ' + count + ' nächstgelegenen Märkte werden angezeigt.';
+    var label = count + (count === 1 ? ' Markt' : ' Märkte');
+    return radius === RADIUS_NEAR ? label + ' in Ihrer Nähe.' : 'Im Umkreis von 50 km gibt es keine Märkte. ' + label + ' im Umkreis von 200 km.';
+  };
+
+  var selectStore = function(store){
+    applyView(function(){ map.flyTo({ center: store.lngLat, zoom: 14 }); openPopup(store); });
+  };
+
+  var renderList = function(){
+    if (!listEl) return;
+    var fragment = document.createDocumentFragment();
+    stores.forEach(function(store, index){
+      var card = makeCard(store);
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('role', 'button');
+      if (index === 0) card.classList.add('is-active');
+      card.addEventListener('click', function(e){
+        if (e.target.closest('a')) return;
+        forEach(listEl.children, function(el){ el.classList.toggle('is-active', el === card); });
+        closeModal();
+        selectStore(store);
+      });
+      card.addEventListener('keydown', function(e){
+        if (e.target !== card) return; /* keep Enter on the route link working */
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+      });
+      fragment.appendChild(card);
+    });
+    listEl.textContent = '';
+    listEl.appendChild(fragment);
+  };
+
+  var cancelSearch = function(){
+    searchId++;
+    activeQuery = '';
+    if (searchController) { searchController.abort(); searchController = null; }
+  };
+
+  var search = function(){
+    var value = input ? input.value.trim() : '';
+    if (!value) { say(MSG.empty); if (input) input.focus(); return; }
+    if (value === activeQuery) return; /* same search still running */
+    cancelSearch();
+    var id = searchId;
+    activeQuery = value;
+    var controller = window.AbortController ? new AbortController() : null;
+    searchController = controller;
+    var signal = controller ? controller.signal : undefined;
+    var current = function(){ if (id !== searchId) throw fail('aborted'); };
+
+    whenMap().catch(function(){}); /* start loading the map in parallel; search does not wait for it */
+    say(MSG.searching);
+
+    geocode(value, signal)
+      .then(function(center){
+        current();
+        return nearby(center, RADIUS_NEAR, signal).then(function(found){
+          current();
+          if (found.length) return { center: center, found: found, radius: RADIUS_NEAR };
+          return nearby(center, RADIUS_FAR, signal).then(function(far){ return { center: center, found: far, radius: RADIUS_FAR }; });
+        });
+      })
+      .then(function(result){
+        current();
+        stores = result.found;
+        renderList();
+        setSearched(true);
+        say(resultMessage(stores.length, result.radius));
+        applyView(function(){
+          if (popup) popup.remove();
+          if (searchMarker) searchMarker.remove();
+          searchMarker = new window.mapboxgl.Marker({ color: '#224385' }).setLngLat(result.center).addTo(map);
+          var bounds = new window.mapboxgl.LngLatBounds(result.center, result.center);
+          stores.slice(0, 8).forEach(function(s){ bounds.extend(s.lngLat); });
+          map.fitBounds(bounds, { padding: 60, maxZoom: 13 });
+        });
+      })
+      .catch(function(err){
+        if (isAbort(err) || id !== searchId) return;
+        if (err && err.kind === 'not-found') say(MSG.notFound);
+        else { reportError(err, 'Suche'); say(MSG.searchError); }
+      })
+      .then(function(){
+        if (id === searchId) { activeQuery = ''; searchController = null; }
+      });
+  };
+
+  var clearSearch = function(){
+    cancelSearch();
+    pendingView = null;
+    if (input) { input.value = ''; input.focus(); }
+    stores = [];
+    if (listEl) listEl.textContent = '';
+    setSearched(false);
+    say('');
+    if (searchMarker) { searchMarker.remove(); searchMarker = null; }
+    if (popup) { popup.remove(); popup = null; }
+    if (map) map.flyTo(START);
+  };
+
+  if (submit) submit.addEventListener('click', function(e){ e.preventDefault(); search(); });
+  if (input) input.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); search(); } });
+  if (reset) reset.addEventListener('click', function(e){ e.preventDefault(); clearSearch(); });
+
+  /* ---------- List modal ---------- */
+
+  var opener = null, previousOverflow = '';
+  var FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  var isOpen = function(){ return !!modal && modal.classList.contains('is-open'); };
+  var setModalHidden = function(hidden){
+    if (hidden) { modal.setAttribute('aria-hidden', 'true'); modal.setAttribute('inert', ''); }
+    else { modal.removeAttribute('aria-hidden'); modal.removeAttribute('inert'); }
+  };
+  var openModal = function(e){
+    if (!modal || isOpen()) return;
+    opener = e && e.currentTarget ? e.currentTarget : document.activeElement;
+    previousOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = 'hidden';
+    modal.classList.add('is-open');
+    setModalHidden(false);
+    if (listOpen) listOpen.setAttribute('aria-expanded', 'true');
+    var first = q('.is-active', listEl) || q('[data-store-close]', modal);
+    if (first) first.focus();
+  };
+  var closeModal = function(){
+    if (!isOpen()) return;
+    modal.classList.remove('is-open');
+    setModalHidden(true);
+    document.documentElement.style.overflow = previousOverflow;
+    if (listOpen) listOpen.setAttribute('aria-expanded', 'false');
+    var target = opener && opener.isConnected && !opener.hidden ? opener : input;
+    opener = null;
+    if (target) target.focus();
+  };
+  if (modal) {
+    if (!modal.hasAttribute('role')) modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    var title = q('#store-modal-title', modal);
+    if (title && !modal.hasAttribute('aria-labelledby')) modal.setAttribute('aria-labelledby', 'store-modal-title');
+    setModalHidden(true);
+    if (listOpen) {
+      listOpen.setAttribute('aria-haspopup', 'dialog');
+      listOpen.setAttribute('aria-expanded', 'false');
+      listOpen.addEventListener('click', openModal);
+    }
+    forEach(modal.querySelectorAll('[data-store-close]'), function(el){ el.addEventListener('click', closeModal); });
+    document.addEventListener('keydown', function(e){
+      if (!isOpen()) return;
+      if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+      if (e.key !== 'Tab') return;
+      var items = Array.prototype.filter.call(modal.querySelectorAll(FOCUSABLE), function(el){ return el.getClientRects().length > 0; });
+      if (!items.length) { e.preventDefault(); return; }
+      var first = items[0], last = items[items.length - 1];
+      if (!modal.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+  }
+})();
+</script>
