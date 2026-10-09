@@ -1,0 +1,106 @@
+<style>
+[data-anfahrt-map] .mapboxgl-map{position:absolute;inset:0;width:100%;height:100%}
+[data-anfahrt-map] .mapboxgl-ctrl-group{border-radius:.5rem}
+</style>
+
+<script>
+/* Anfahrt: Mapbox map with the Werksverkauf pin only.
+   Settings on [data-anfahrt-map]: data-mapbox-token (public pk. token), data-mapbox-style, data-lnglat ("lng,lat"), data-zoom (optional).
+   The map goes into [data-anfahrt-canvas]; until it loads (or if it fails) the grey wrapper stays as placeholder. */
+(function(){
+  var root = document.querySelector('[data-anfahrt-map]');
+  if (!root || root.hasAttribute('data-anfahrt-init')) return;
+  root.setAttribute('data-anfahrt-init', '');
+
+  var warn = function(msg){ if (window.console) console.warn('[Anfahrt] ' + msg); };
+  var mapEl = root.querySelector('[data-anfahrt-canvas]');
+  var TOKEN = (root.getAttribute('data-mapbox-token') || '').trim();
+  var STYLE = root.getAttribute('data-mapbox-style') || 'mapbox://styles/mapbox/light-v11';
+  var ZOOM = Number(root.getAttribute('data-zoom')) || 14;
+  var GL_URL = 'https://api.mapbox.com/mapbox-gl-js/v3.9.4/'; /* same version as the store locator */
+  var LOAD_TIMEOUT = 15000;
+
+  var POINT = (function(){
+    var parts = (root.getAttribute('data-lnglat') || '').split(',');
+    var lng = Number(parts[0]), lat = Number(parts[1]);
+    if (parts.length !== 2 || !isFinite(lng) || !isFinite(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) return null;
+    return [lng, lat];
+  })();
+
+  if (!mapEl) { warn('[data-anfahrt-canvas] fehlt'); return; }
+  if (TOKEN.indexOf('pk.') !== 0) { warn('data-mapbox-token muss ein öffentlicher Token (pk.) sein'); return; }
+  if (!POINT) { warn('data-lnglat ist ungültig'); return; }
+
+  /* Same yellow Burgis pin as in the store locator */
+  var TOWER_PATH = 'M21.2596 2.68038C21.9777 2.7088 22.7136 2.70644 23.4335 2.71214C23.4829 3.81021 23.4498 5.11818 23.4488 6.23161L23.4445 14.5409C21.9103 14.0807 21.0973 13.981 19.5012 14.2818C15.6895 15 12.731 17.0868 10.5679 20.2597C7.88385 18.542 5.17746 17.4862 1.95889 18.0044C1.53807 18.0722 1.10343 18.126 0.680176 18.1883V2.68018C1.26385 2.72131 2.23013 2.70408 2.84173 2.71026C2.85868 3.24766 2.59988 4.93073 3.75257 4.37381C4.08015 4.05102 3.95627 3.23689 3.96239 2.69609L5.98818 2.71061C6.00118 3.04236 5.89078 4.14856 6.18251 4.31558C7.37806 4.99986 7.12392 3.28448 7.12656 2.70797C7.87864 2.68775 8.66685 2.70422 9.42179 2.70873C9.46521 5.21114 9.40998 7.77121 9.43645 10.2874L14.6468 10.2938C14.752 7.81352 14.6467 5.20217 14.7016 2.70067L16.9432 2.70283C16.9496 3.28698 16.7731 3.9293 17.1167 4.34511C17.4871 4.58057 18.0099 4.46211 18.0581 4.02795C18.1005 3.64625 18.0636 3.07842 18.0582 2.6899L20.1202 2.70706C20.1392 3.26684 19.9658 3.94034 20.2899 4.33851C20.5274 4.49893 20.9314 4.51998 21.111 4.29189C21.3696 3.96355 21.2643 3.09203 21.2596 2.68038Z';
+  var pinImage = function(){
+    var size = 68, r = 16, canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffe300';
+    ctx.beginPath();
+    ctx.moveTo(r, 0); ctx.arcTo(size, 0, size, size, r); ctx.arcTo(size, size, 0, size, r);
+    ctx.arcTo(0, size, 0, 0, r); ctx.arcTo(0, 0, size, 0, r); ctx.closePath(); ctx.fill();
+    if (typeof Path2D !== 'undefined') { /* without Path2D the pin stays a plain yellow square */
+      var scale = 1.75;
+      ctx.translate((size - 24 * scale) / 2, size / 2 - 11.47 * scale);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#0B4887';
+      ctx.fill(new Path2D(TOWER_PATH));
+    }
+    return ctx.getImageData(0, 0, size, size);
+  };
+
+  /* Loads Mapbox GL once; shares the tags with the store locator if both are on one page */
+  var loadLibrary = function(){
+    if (window.mapboxgl) return Promise.resolve(window.mapboxgl);
+    return new Promise(function(resolve, reject){
+      if (!document.querySelector('link[data-mapbox-css]')) {
+        var css = document.createElement('link');
+        css.rel = 'stylesheet'; css.href = GL_URL + 'mapbox-gl.css'; css.setAttribute('data-mapbox-css', '');
+        document.head.appendChild(css);
+      }
+      var js = document.querySelector('script[data-mapbox-js]');
+      if (!js) {
+        js = document.createElement('script');
+        js.src = GL_URL + 'mapbox-gl.js'; js.async = true; js.setAttribute('data-mapbox-js', '');
+        document.head.appendChild(js);
+      }
+      js.addEventListener('load', function(){ window.mapboxgl ? resolve(window.mapboxgl) : reject(new Error('mapboxgl fehlt nach dem Laden')); });
+      js.addEventListener('error', function(){ reject(new Error('mapbox-gl.js konnte nicht geladen werden')); });
+    });
+  };
+
+  var start = function(){
+    loadLibrary().then(function(gl){
+      var map, timer;
+      var giveUp = function(msg){
+        clearTimeout(timer);
+        warn(msg);
+        if (map) { try { map.remove(); } catch (e) { /* already torn down */ } map = null; }
+      };
+      gl.accessToken = TOKEN;
+      try {
+        map = new gl.Map({ container: mapEl, style: STYLE, center: POINT, zoom: ZOOM, cooperativeGestures: true });
+        map.addControl(new gl.NavigationControl({ showCompass: false }), 'top-right');
+      } catch (e) { giveUp('Karte konnte nicht erstellt werden'); return; }
+      timer = setTimeout(function(){ giveUp('Zeitüberschreitung beim Laden der Karte'); }, LOAD_TIMEOUT);
+      map.once('load', function(){
+        clearTimeout(timer);
+        try {
+          map.addImage('burgis-pin', pinImage(), { pixelRatio: 2 });
+          map.addSource('werksverkauf', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: POINT }, properties: {} } });
+          map.addLayer({ id: 'werksverkauf', type: 'symbol', source: 'werksverkauf', layout: { 'icon-image': 'burgis-pin', 'icon-size': 1.15, 'icon-allow-overlap': true } });
+        } catch (e) { warn('Pin konnte nicht angelegt werden'); }
+      });
+    }).catch(function(err){ warn(err.message); });
+  };
+
+  /* Mapbox loads only when the map approaches the viewport */
+  if (!('IntersectionObserver' in window)) { start(); return; }
+  var io = new IntersectionObserver(function(entries){
+    if (entries.some(function(e){ return e.isIntersecting; })) { io.disconnect(); start(); }
+  }, { rootMargin: '300px' });
+  io.observe(root);
+})();
+</script>
