@@ -71,6 +71,10 @@ const doSearch=(T,v)=>{T.d.querySelector('[data-store-search]').value=v;T.d.quer
   T.d.querySelector('[data-store-reset]').click();await tick(100);
   ok(cards(T).length===0&&msg(T)==='','2b reset cancels pending search');
   ok(T.d.querySelector('[data-store-submit]').hidden===false,'2b submit visible after reset');}
+ {const T=setup();T.respond=(k)=>k==='geo'?geo(11,49):tq(2);doSearch(T,'a');await tick(20);
+  ok(cards(T).length===2&&T.d.querySelector('[data-store-submit]').hidden===false&&T.d.querySelector('[data-store-list-open]').hidden===false,'submit stays visible after a search, next to the list button');
+  T.d.querySelector('[data-store-search]').value='b';T.d.querySelector('[data-store-submit]').click();await tick(20);
+  ok(T.fetches.filter(f=>f.kind==='geo').length===2,'a second search can be started with the button');}
  // 2c duplicate submit of same query
  {const T=setup();T.respond=(k)=>k==='geo'?geo(11,49):tq(1);T.delay=()=>20;doSearch(T,'a');doSearch(T,'a');await tick(80);
   ok(T.fetches.filter(f=>f.kind==='geo').length===1,'2c same query not submitted twice');}

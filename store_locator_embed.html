@@ -463,7 +463,6 @@
   };
 
   var setSearched = function(active){
-    if (submit) submit.hidden = active;
     if (listOpen) listOpen.hidden = !active;
     if (reset) reset.classList.toggle('is-visible', active);
   };
