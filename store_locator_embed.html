@@ -2,9 +2,8 @@
 .section_store-locator [hidden]{display:none !important}
 .section_store-locator .filter-modal.is-open{display:flex}
 .store-locator_reset.is-visible{display:block}
-.store-locator_list .anfahrt_store.is-card{width:100%;text-align:left}
-.store-locator_list .anfahrt_store.is-card:hover,.store-locator_list .anfahrt_store.is-card.is-active{border-color:#ffe300;background-color:#f2f2f2}
-.store-locator_list .anfahrt_store.is-card:focus-visible{outline:2px solid #224385;outline-offset:2px}
+/* is-active is set by the script (selected store); hover/focus live on the Webflow class anfahrt_store is-card */
+.store-locator_list .anfahrt_store.is-card.is-active{border-color:#ffe300;background-color:#f2f2f2}
 .store-locator_popup .mapboxgl-popup-content{min-width:15rem;padding:0;border-radius:.5rem;box-shadow:0 4px 16px rgba(0,0,0,.15)}
 .store-locator_popup .mapboxgl-popup-tip{border-width:6px}
 .store-locator_popup .anfahrt_store{position:relative;display:flex;flex-direction:column;align-items:flex-start;row-gap:.75rem;padding:.75rem;background-color:#fff;border:0;cursor:default}
@@ -22,7 +21,6 @@
 .store-locator_popup .mapboxgl-popup-content:has(.anfahrt_store-logo) .mapboxgl-popup-close-button{top:2.1875rem}
 .store-locator_map.mapboxgl-map{position:absolute;inset:0;width:100%;height:100%}
 .store-locator_map .mapboxgl-ctrl-group{border-radius:.5rem}
-.store-locator_map-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:2rem;text-align:center;color:#454545}
 </style>
 
 <script>
