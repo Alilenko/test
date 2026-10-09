@@ -232,9 +232,9 @@
     return libraryPromise;
   };
 
-  var pointer = function(layer){
-    map.on('mouseenter', layer, function(){ map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', layer, function(){ map.getCanvas().style.cursor = ''; });
+  var pointer = function(instance, layer){
+    instance.on('mouseenter', layer, function(){ instance.getCanvas().style.cursor = 'pointer'; });
+    instance.on('mouseleave', layer, function(){ instance.getCanvas().style.cursor = ''; });
   };
 
   var showPopup = function(lngLat, content, offset){
@@ -259,14 +259,16 @@
     showPopup(FACTORY, card, 24);
   };
 
-  var addStoreLayer = function(){
+  /* Every map-bound step works on its own instance, so callbacks of a removed map never touch a newer one */
+  var addStoreLayer = function(instance){
     return getJson('https://api.mapbox.com/v4/' + TILESET + '.json?secure&access_token=' + encodeURIComponent(TOKEN), 'TileJSON')
       .then(function(tilejson){
+        if (map !== instance) return; /* map was removed meanwhile */
         var layer = tilejson && Array.isArray(tilejson.vector_layers) && tilejson.vector_layers[0] && tilejson.vector_layers[0].id;
         if (!layer) throw fail('invalid', 'TileJSON ohne vector_layers');
-        var before = map.getLayer('werksverkauf') ? 'werksverkauf' : undefined; /* factory pin stays on top */
-        map.addSource('maerkte', { type: 'vector', url: 'mapbox://' + TILESET });
-        map.addLayer({
+        var before = instance.getLayer('werksverkauf') ? 'werksverkauf' : undefined; /* factory pin stays on top */
+        instance.addSource('maerkte', { type: 'vector', url: 'mapbox://' + TILESET });
+        instance.addLayer({
           id: 'maerkte', type: 'symbol', source: 'maerkte', 'source-layer': layer,
           layout: {
             'icon-image': 'burgis-pin',
@@ -276,57 +278,76 @@
           }
         }, before);
         /* A click on the Werksverkauf pin must not also open the store underneath */
-        map.on('click', 'maerkte', function(e){
-          if (map.getLayer('werksverkauf') && map.queryRenderedFeatures(e.point, { layers: ['werksverkauf'] }).length) return;
+        instance.on('click', 'maerkte', function(e){
+          if (instance.getLayer('werksverkauf') && instance.queryRenderedFeatures(e.point, { layers: ['werksverkauf'] }).length) return;
           var store = e.features && e.features[0] ? toStore(e.features[0]) : null;
           if (store) openPopup(store);
         });
-        pointer('maerkte');
+        pointer(instance, 'maerkte');
         log('Tileset geladen (Layer ' + layer + ')');
       });
   };
 
-  /* Resolves with the map once its style has loaded; created at most once */
+  var LOAD_TIMEOUT = 30000;  /* no 'load' at all, e.g. a hanging network */
+  var ERROR_GRACE = 10000;   /* after an early error, wait this long for 'load' before giving up */
+
+  /* Resolves with the map once its style has loaded; created at most once per attempt */
   var whenMap = function(){
     if (mapPromise) return mapPromise;
+    var instance = null;
     mapPromise = loadLibrary().then(function(gl){
       return new Promise(function(resolve, reject){
+        var settled = false, loadTimer = null;
+        var giveUp = function(detail){
+          if (settled) return;
+          settled = true;
+          clearTimeout(loadTimer);
+          reject(fail('map', detail));
+        };
         gl.accessToken = TOKEN;
-        var instance;
         try {
           instance = new gl.Map({ container: mapEl, style: STYLE, center: START.center, zoom: START.zoom, cooperativeGestures: true });
-        } catch (e) { reject(fail('map', 'Karte konnte nicht erstellt werden')); return; }
-        map = instance;
-        map.addControl(new gl.NavigationControl({ showCompass: false }), 'top-right');
-        var loaded = false;
-        map.on('error', function(e){
+          instance.addControl(new gl.NavigationControl({ showCompass: false }), 'top-right');
+        } catch (e) { giveUp('Karte konnte nicht erstellt werden'); return; }
+        loadTimer = setTimeout(function(){ giveUp('Zeitüberschreitung beim Laden der Karte'); }, LOAD_TIMEOUT);
+
+        instance.on('error', function(e){
           var status = e && e.error && e.error.status;
           warn('Kartenfehler' + (status ? ' (HTTP ' + status + ')' : ''));
-          /* Tile/source errors are not fatal; an error before 'load' without a source means the style failed */
-          if (!loaded && !(e && e.sourceId)) { loaded = true; reject(fail('map', 'Kartenstil konnte nicht geladen werden')); }
+          /* Tile/source errors are never fatal. Other early errors (style, sprite, glyphs) are only
+             fatal if 'load' does not follow — a failed sprite still lets the map load. */
+          if (!settled && !(e && e.sourceId)) {
+            clearTimeout(loadTimer);
+            loadTimer = setTimeout(function(){ giveUp('Kartenstil konnte nicht geladen werden'); }, ERROR_GRACE);
+          }
         });
-        map.on('load', function(){
-          if (loaded) return;
-          loaded = true;
+
+        instance.on('load', function(){
+          if (settled) return;
+          settled = true;
+          clearTimeout(loadTimer);
+          map = instance;
           try {
-            map.resize();
-            map.addImage('burgis-pin', pinImage(), { pixelRatio: 2 });
+            instance.resize();
+            instance.addImage('burgis-pin', pinImage(), { pixelRatio: 2 });
             if (FACTORY) {
-              map.addSource('werksverkauf', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: FACTORY }, properties: {} } });
-              map.addLayer({ id: 'werksverkauf', type: 'symbol', source: 'werksverkauf', layout: { 'icon-image': 'burgis-pin', 'icon-size': 1.15, 'icon-allow-overlap': true } });
-              map.on('click', 'werksverkauf', openFactory);
-              pointer('werksverkauf');
+              instance.addSource('werksverkauf', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Point', coordinates: FACTORY }, properties: {} } });
+              instance.addLayer({ id: 'werksverkauf', type: 'symbol', source: 'werksverkauf', layout: { 'icon-image': 'burgis-pin', 'icon-size': 1.15, 'icon-allow-overlap': true } });
+              instance.on('click', 'werksverkauf', openFactory);
+              pointer(instance, 'werksverkauf');
             }
           } catch (e) { reject(fail('map', 'Kartenebenen konnten nicht angelegt werden')); return; }
-          addStoreLayer().catch(function(err){ reportError(err, 'Tileset'); say(MSG.loadError); });
-          resolve(map);
+          addStoreLayer(instance).catch(function(err){ reportError(err, 'Tileset'); say(MSG.loadError); });
+          resolve(instance);
         });
       });
     }).catch(function(err){
       reportError(err, 'Karte');
       say(MSG.loadError);
-      mapPromise = null; /* a later search may retry */
-      if (map) { try { map.remove(); } catch (e) {} map = null; }
+      /* Clean up this attempt completely; a later search may retry with a fresh map */
+      if (instance) { try { instance.remove(); } catch (e) {} }
+      if (map === instance) { map = null; popup = null; searchMarker = null; }
+      mapPromise = null;
       throw err;
     });
     return mapPromise;
