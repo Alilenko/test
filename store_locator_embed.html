@@ -2,8 +2,13 @@
 .section_store-locator [hidden]{display:none !important}
 .section_store-locator .filter-modal.is-open{display:flex}
 .store-locator_reset.is-visible{display:block}
-/* is-active is set by the script (selected store); hover/focus live on the Webflow class anfahrt_store is-card */
+/* is-active is set by the script (selected store); hover lives on the Webflow class anfahrt_store is-card */
 .store-locator_list .anfahrt_store.is-card.is-active{border-color:#ffe300;background-color:#f2f2f2}
+/* the store name is the focusable control; the focus ring is drawn around the whole card */
+@supports selector(:has(*)){
+.store-locator_list .anfahrt_store.is-card:has([data-store-name]:focus-visible){outline:2px solid #224385;outline-offset:2px}
+.store-locator_list [data-store-name]:focus-visible{outline:none}
+}
 .store-locator_popup .mapboxgl-popup-content{min-width:15rem;padding:0;border-radius:.5rem;box-shadow:0 4px 16px rgba(0,0,0,.15)}
 .store-locator_popup .mapboxgl-popup-tip{border-width:6px}
 .store-locator_popup .anfahrt_store{position:relative;display:flex;flex-direction:column;align-items:flex-start;row-gap:.75rem;padding:.75rem;background-color:#fff;border:0;cursor:default}
@@ -72,6 +77,11 @@
   var resultText = '', mapBroken = false;
   var showStatus = function(){ say(mapBroken ? (resultText ? resultText + ' ' : '') + MSG.loadError : resultText); };
   var mapError = function(){ mapBroken = true; showStatus(); };
+  var mapRecovered = function(){
+    if (!mapBroken) return;
+    mapBroken = false;
+    if (!activeQuery) showStatus(); /* a running search updates the line itself */
+  };
   say('');
 
   if (!TOKEN || !TILESET) { say(MSG.config); warn('data-mapbox-token / data-mapbox-tileset fehlen'); return; }
@@ -128,10 +138,22 @@
     };
   };
 
-  /* Cloned Webflow templates must not duplicate HTML ids */
+  /* Cloned Webflow templates must not duplicate HTML ids; references to the removed ids are dropped too */
+  var ID_REFS = ['aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', 'for'];
   var stripIds = function(node){
-    node.removeAttribute('id');
-    forEach(node.querySelectorAll('[id]'), function(el){ el.removeAttribute('id'); });
+    var removed = new Set();
+    [node].concat(Array.prototype.slice.call(node.querySelectorAll('[id]'))).forEach(function(el){
+      if (el.id) { removed.add(el.id); el.removeAttribute('id'); }
+    });
+    if (!removed.size) return node;
+    [node].concat(Array.prototype.slice.call(node.querySelectorAll('*'))).forEach(function(el){
+      ID_REFS.forEach(function(attr){
+        var value = el.getAttribute(attr);
+        if (!value) return;
+        var kept = value.split(/\s+/).filter(function(id){ return id && !removed.has(id); });
+        if (kept.length) el.setAttribute(attr, kept.join(' ')); else el.removeAttribute(attr);
+      });
+    });
     return node;
   };
 
@@ -141,7 +163,7 @@
       if (!el) return;
       if (value) el.textContent = value; else el.remove();
     };
-    set('[data-store-name]', store.name);
+    set('[data-store-name]', store.name || store.street || store.city); /* the name doubles as the select button */
     set('[data-store-street]', store.street);
     set('[data-store-city]', store.city);
     set('[data-store-phone]', store.phone);
@@ -169,11 +191,13 @@
     ctx.beginPath();
     ctx.moveTo(r, 0); ctx.arcTo(size, 0, size, size, r); ctx.arcTo(size, size, 0, size, r);
     ctx.arcTo(0, size, 0, 0, r); ctx.arcTo(0, 0, size, 0, r); ctx.closePath(); ctx.fill();
-    var scale = 1.75; /* 24px icon -> 42px inside the 68px pin, centred on the tower shape */
-    ctx.translate((size - 24 * scale) / 2, size / 2 - 11.47 * scale);
-    ctx.scale(scale, scale);
-    ctx.fillStyle = '#0B4887';
-    ctx.fill(new Path2D(TOWER_PATH));
+    if (typeof Path2D !== 'undefined') { /* without Path2D the pin stays a plain yellow square */
+      var scale = 1.75; /* 24px icon -> 42px inside the 68px pin, centred on the tower shape */
+      ctx.translate((size - 24 * scale) / 2, size / 2 - 11.47 * scale);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#0B4887';
+      ctx.fill(new Path2D(TOWER_PATH));
+    }
     return ctx.getImageData(0, 0, size, size);
   };
 
@@ -283,15 +307,20 @@
   };
 
   /* The store layer is retried on the next search if TileJSON failed (the map itself keeps working) */
-  var storeLayerPromise = null;
+  var storeLayer = null; /* { instance, promise } — never reused for another map */
   var ensureStoreLayer = function(instance){
-    if (storeLayerPromise) return storeLayerPromise;
-    storeLayerPromise = addStoreLayer(instance).catch(function(err){
-      storeLayerPromise = null;
+    if (storeLayer && storeLayer.instance === instance) return storeLayer.promise;
+    var entry = { instance: instance };
+    entry.promise = addStoreLayer(instance).then(function(){
+      if (map === instance) mapRecovered();
+    }, function(err){
+      if (storeLayer === entry) storeLayer = null;
+      if (map !== instance) return; /* error of a map that is gone */
       reportError(err, 'Tileset');
       mapError();
     });
-    return storeLayerPromise;
+    storeLayer = entry;
+    return entry.promise;
   };
 
   var LOAD_TIMEOUT = 30000;  /* no 'load' at all, e.g. a hanging network */
@@ -334,7 +363,6 @@
           settled = true;
           clearTimeout(loadTimer); clearTimeout(graceTimer);
           map = instance;
-          mapBroken = false;
           try {
             instance.resize();
             instance.addImage('burgis-pin', pinImage(), { pixelRatio: 2 });
@@ -354,7 +382,8 @@
       mapError();
       /* Clean up this attempt completely; a later search may retry with a fresh map */
       if (instance) { try { instance.remove(); } catch (e) {} }
-      if (map === instance) { map = null; popup = null; searchMarker = null; storeLayerPromise = null; }
+      if (map === instance) { map = null; popup = null; searchMarker = null; }
+      if (storeLayer && storeLayer.instance === instance) storeLayer = null;
       mapPromise = null;
       throw err;
     });
@@ -421,23 +450,33 @@
     applyView(function(){ map.flyTo({ center: store.lngLat, zoom: 14 }); openPopup(store); });
   };
 
+  var setActive = function(card, active){
+    card.classList.toggle('is-active', active);
+    var name = q('[data-store-name]', card);
+    if (name) { if (active) name.setAttribute('aria-current', 'true'); else name.removeAttribute('aria-current'); }
+  };
+
   var renderList = function(){
     if (!listEl) return;
     var fragment = document.createDocumentFragment();
     stores.forEach(function(store, index){
       var card = makeCard(store);
-      card.setAttribute('tabindex', '0');
-      card.setAttribute('role', 'button');
-      if (index === 0) card.classList.add('is-active');
+      /* The card itself is not a button (it contains the route link): the store name is the
+         keyboard/screen-reader control, a click anywhere on the card does the same for the mouse */
+      var name = q('[data-store-name]', card);
+      if (name) {
+        name.setAttribute('role', 'button');
+        name.setAttribute('tabindex', '0');
+        name.addEventListener('keydown', function(e){
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+        });
+      }
+      setActive(card, index === 0);
       card.addEventListener('click', function(e){
         if (e.target.closest('a')) return;
-        forEach(listEl.children, function(el){ el.classList.toggle('is-active', el === card); });
+        forEach(listEl.children, function(el){ setActive(el, el === card); });
         closeModal();
         selectStore(store);
-      });
-      card.addEventListener('keydown', function(e){
-        if (e.target !== card) return; /* keep Enter on the route link working */
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
       });
       fragment.appendChild(card);
     });
@@ -453,7 +492,7 @@
 
   var search = function(){
     var value = input ? input.value.trim() : '';
-    if (!value) { say(MSG.empty); if (input) input.focus(); return; }
+    if (!value) { cancelSearch(); resultText = ''; say(MSG.empty); if (input) input.focus(); return; }
     if (value === activeQuery) return; /* same search still running */
     cancelSearch();
     resultText = '';
@@ -538,7 +577,7 @@
     modal.classList.add('is-open');
     setModalHidden(false);
     if (listOpen) listOpen.setAttribute('aria-expanded', 'true');
-    var first = q('.is-active', listEl) || q('[data-store-close]', modal);
+    var first = q('.is-active [data-store-name]', listEl) || q('[data-store-close]', modal);
     if (first) first.focus();
   };
   var closeModal = function(){
