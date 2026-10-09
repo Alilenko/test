@@ -33,7 +33,6 @@
   if (!root || root.hasAttribute('data-store-init')) return;
   root.setAttribute('data-store-init', '');
 
-  var log = function(text){ if (window.console) console.info('[Händler finden] ' + text); };
   var warn = function(text){ if (window.console) console.warn('[Händler finden] ' + text); };
 
   var TOKEN = (root.getAttribute('data-mapbox-token') || '').trim();
@@ -50,7 +49,8 @@
     notFound: 'Diese PLZ oder dieser Ort wurde nicht gefunden.',
     empty: 'Bitte PLZ oder Ort eingeben.',
     searching: 'Märkte werden gesucht …',
-    none: 'In der Nähe wurden keine Märkte gefunden.'
+    none: 'In der Nähe wurden keine Märkte gefunden.',
+    config: 'Karte nicht konfiguriert.'
   };
 
   var q = function(selector, scope){ return (scope || root).querySelector(selector); };
@@ -68,13 +68,16 @@
   if (!mapEl || !template) return;
 
   var say = function(text){ if (message) message.textContent = text || ''; };
-  if (message && !message.hasAttribute('aria-live')) message.setAttribute('aria-live', 'polite');
+  /* Search results and map errors share one message line: a map error is appended, never replaces results */
+  var resultText = '', mapBroken = false;
+  var showStatus = function(){ say(mapBroken ? (resultText ? resultText + ' ' : '') + MSG.loadError : resultText); };
+  var mapError = function(){ mapBroken = true; showStatus(); };
   say('');
 
-  if (!TOKEN || !TILESET) { say('Karte nicht konfiguriert.'); warn('data-mapbox-token / data-mapbox-tileset fehlen'); return; }
+  if (!TOKEN || !TILESET) { say(MSG.config); warn('data-mapbox-token / data-mapbox-tileset fehlen'); return; }
   /* Only public tokens may ever reach the browser */
-  if (TOKEN.indexOf('pk.') !== 0) { say('Karte nicht konfiguriert.'); warn('data-mapbox-token muss ein öffentlicher Token (pk.) sein'); return; }
-  if (!/^[\w.-]+$/.test(TILESET)) { say('Karte nicht konfiguriert.'); warn('data-mapbox-tileset ist ungültig'); return; }
+  if (TOKEN.indexOf('pk.') !== 0) { say(MSG.config); warn('data-mapbox-token muss ein öffentlicher Token (pk.) sein'); return; }
+  if (!/^[\w.-]+$/.test(TILESET)) { say(MSG.config); warn('data-mapbox-tileset ist ungültig'); return; }
 
   /* ---------- Data helpers ---------- */
 
@@ -116,7 +119,6 @@
     var plz = text(p.plz);
     if (/^\d{4}$/.test(plz)) plz = '0' + plz; /* CSV import turns 01067 into 1067 */
     return {
-      id: text(p.id),
       name: text(p.name),
       chain: text(p.chain).toLowerCase(),
       street: [text(p.strasse), text(p.hausnummer)].filter(Boolean).join(' '),
@@ -167,15 +169,11 @@
     ctx.beginPath();
     ctx.moveTo(r, 0); ctx.arcTo(size, 0, size, size, r); ctx.arcTo(size, size, 0, size, r);
     ctx.arcTo(0, size, 0, 0, r); ctx.arcTo(0, 0, size, 0, r); ctx.closePath(); ctx.fill();
-    if (window.Path2D) {
-      var scale = 1.75; /* 24px icon -> 42px inside the 68px pin, centred on the tower shape */
-      ctx.save();
-      ctx.translate((size - 24 * scale) / 2, size / 2 - 11.47 * scale);
-      ctx.scale(scale, scale);
-      ctx.fillStyle = '#0B4887';
-      ctx.fill(new window.Path2D(TOWER_PATH));
-      ctx.restore();
-    }
+    var scale = 1.75; /* 24px icon -> 42px inside the 68px pin, centred on the tower shape */
+    ctx.translate((size - 24 * scale) / 2, size / 2 - 11.47 * scale);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = '#0B4887';
+    ctx.fill(new Path2D(TOWER_PATH));
     return ctx.getImageData(0, 0, size, size);
   };
 
@@ -186,7 +184,7 @@
   var isAbort = function(err){ return err && (err.name === 'AbortError' || err.kind === 'aborted'); };
 
   var getJson = function(url, name, signal){
-    return fetch(url, signal ? { signal: signal } : undefined)
+    return fetch(url, { signal: signal })
       .catch(function(err){ throw isAbort(err) ? err : fail('network', name); })
       .then(function(res){
         if (!res.ok) throw fail('http', name + ' HTTP ' + res.status);
@@ -223,7 +221,7 @@
       js.onload = function(){ window.mapboxgl ? resolve(window.mapboxgl) : reject(fail('library', 'mapboxgl fehlt nach dem Laden')); };
       js.onerror = function(){ reject(fail('library', 'mapbox-gl.js konnte nicht geladen werden')); };
       document.head.appendChild(js);
-    }).then(function(gl){ log('Mapbox GL geladen'); return gl; }, function(err){
+    }).catch(function(err){
       libraryPromise = null; /* allow a controlled retry */
       throw err;
     });
@@ -244,9 +242,7 @@
   var openPopup = function(store){
     if (!map || !store) return;
     var card = makeCard(store);
-    card.classList.remove('is-card');
-    card.removeAttribute('tabindex');
-    card.removeAttribute('role');
+    card.classList.remove('is-card'); /* list styling (border, hover) does not belong in the popup */
     showPopup(store.lngLat, card, 21);
   };
 
@@ -283,7 +279,6 @@
           if (store) openPopup(store);
         });
         pointer(instance, 'maerkte');
-        log('Tileset geladen (Layer ' + layer + ')');
       });
   };
 
@@ -294,7 +289,7 @@
     storeLayerPromise = addStoreLayer(instance).catch(function(err){
       storeLayerPromise = null;
       reportError(err, 'Tileset');
-      say(MSG.loadError);
+      mapError();
     });
     return storeLayerPromise;
   };
@@ -339,6 +334,7 @@
           settled = true;
           clearTimeout(loadTimer); clearTimeout(graceTimer);
           map = instance;
+          mapBroken = false;
           try {
             instance.resize();
             instance.addImage('burgis-pin', pinImage(), { pixelRatio: 2 });
@@ -355,7 +351,7 @@
       });
     }).catch(function(err){
       reportError(err, 'Karte');
-      say(MSG.loadError);
+      mapError();
       /* Clean up this attempt completely; a later search may retry with a fresh map */
       if (instance) { try { instance.remove(); } catch (e) {} }
       if (map === instance) { map = null; popup = null; searchMarker = null; storeLayerPromise = null; }
@@ -376,13 +372,11 @@
     }).catch(function(){});
   };
 
-  if ('IntersectionObserver' in window) {
-    var io = new IntersectionObserver(function(entries){
-      if (entries.some(function(e){ return e.isIntersecting; })) { io.disconnect(); whenMap().catch(function(){}); }
-    }, { rootMargin: '300px' });
-    io.observe(root);
-  } else whenMap().catch(function(){});
-  log('Skript gestartet, Karte lädt beim Scrollen');
+  /* Mapbox loads only when the locator approaches the viewport */
+  var io = new IntersectionObserver(function(entries){
+    if (entries.some(function(e){ return e.isIntersecting; })) { io.disconnect(); whenMap().catch(function(){}); }
+  }, { rootMargin: '300px' });
+  io.observe(root);
 
   /* ---------- Search: geocode PLZ / place, then nearest stores via Tilequery ---------- */
 
@@ -414,11 +408,13 @@
   };
   setSearched(false);
 
+  var km = function(m){ return m / 1000 + ' km'; };
   var resultMessage = function(count, radius){
     if (!count) return MSG.none;
     if (count >= LIST_LIMIT) return 'Die ' + count + ' nächstgelegenen Märkte werden angezeigt.';
     var label = count + (count === 1 ? ' Markt' : ' Märkte');
-    return radius === RADIUS_NEAR ? label + ' in Ihrer Nähe.' : 'Im Umkreis von 50 km gibt es keine Märkte. ' + label + ' im Umkreis von 200 km.';
+    return radius === RADIUS_NEAR ? label + ' in Ihrer Nähe.'
+      : 'Im Umkreis von ' + km(RADIUS_NEAR) + ' gibt es keine Märkte. ' + label + ' im Umkreis von ' + km(radius) + '.';
   };
 
   var selectStore = function(store){
@@ -460,11 +456,12 @@
     if (!value) { say(MSG.empty); if (input) input.focus(); return; }
     if (value === activeQuery) return; /* same search still running */
     cancelSearch();
+    resultText = '';
     var id = searchId;
     activeQuery = value;
-    var controller = window.AbortController ? new AbortController() : null;
+    var controller = new AbortController();
     searchController = controller;
-    var signal = controller ? controller.signal : undefined;
+    var signal = controller.signal;
     var current = function(){ if (id !== searchId) throw fail('aborted'); };
 
     /* Start loading the map in parallel (search does not wait for it); retry the store layer if it failed */
@@ -485,7 +482,8 @@
         stores = result.found;
         renderList();
         setSearched(true);
-        say(resultMessage(stores.length, result.radius));
+        resultText = resultMessage(stores.length, result.radius);
+        showStatus();
         applyView(function(){
           if (popup) popup.remove();
           if (searchMarker) searchMarker.remove();
@@ -512,7 +510,8 @@
     stores = [];
     if (listEl) listEl.textContent = '';
     setSearched(false);
-    say('');
+    resultText = '';
+    showStatus(); /* empty, or the map error if the map is still unavailable */
     if (searchMarker) { searchMarker.remove(); searchMarker = null; }
     if (popup) { popup.remove(); popup = null; }
     if (map) map.flyTo(START);
@@ -525,7 +524,7 @@
   /* ---------- List modal ---------- */
 
   var opener = null, previousOverflow = '';
-  var FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  var FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
   var isOpen = function(){ return !!modal && modal.classList.contains('is-open'); };
   var setModalHidden = function(hidden){
     if (hidden) { modal.setAttribute('aria-hidden', 'true'); modal.setAttribute('inert', ''); }
@@ -553,13 +552,9 @@
     if (target) target.focus();
   };
   if (modal) {
-    if (!modal.hasAttribute('role')) modal.setAttribute('role', 'dialog');
-    modal.setAttribute('aria-modal', 'true');
-    var title = q('#store-modal-title', modal);
-    if (title && !modal.hasAttribute('aria-labelledby')) modal.setAttribute('aria-labelledby', 'store-modal-title');
+    /* role="dialog", aria-modal, aria-labelledby and aria-haspopup are set in Webflow; only state is set here */
     setModalHidden(true);
     if (listOpen) {
-      listOpen.setAttribute('aria-haspopup', 'dialog');
       listOpen.setAttribute('aria-expanded', 'false');
       listOpen.addEventListener('click', openModal);
     }
