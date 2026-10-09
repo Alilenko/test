@@ -261,9 +261,10 @@
 
   /* Every map-bound step works on its own instance, so callbacks of a removed map never touch a newer one */
   var addStoreLayer = function(instance){
+    if (instance.getLayer('maerkte')) return Promise.resolve();
     return getJson('https://api.mapbox.com/v4/' + TILESET + '.json?secure&access_token=' + encodeURIComponent(TOKEN), 'TileJSON')
       .then(function(tilejson){
-        if (map !== instance) return; /* map was removed meanwhile */
+        if (map !== instance || instance.getLayer('maerkte')) return; /* map removed meanwhile, or layer already added */
         var layer = tilejson && Array.isArray(tilejson.vector_layers) && tilejson.vector_layers[0] && tilejson.vector_layers[0].id;
         if (!layer) throw fail('invalid', 'TileJSON ohne vector_layers');
         var before = instance.getLayer('werksverkauf') ? 'werksverkauf' : undefined; /* factory pin stays on top */
@@ -288,6 +289,18 @@
       });
   };
 
+  /* The store layer is retried on the next search if TileJSON failed (the map itself keeps working) */
+  var storeLayerPromise = null;
+  var ensureStoreLayer = function(instance){
+    if (storeLayerPromise) return storeLayerPromise;
+    storeLayerPromise = addStoreLayer(instance).catch(function(err){
+      storeLayerPromise = null;
+      reportError(err, 'Tileset');
+      say(MSG.loadError);
+    });
+    return storeLayerPromise;
+  };
+
   var LOAD_TIMEOUT = 30000;  /* no 'load' at all, e.g. a hanging network */
   var ERROR_GRACE = 10000;   /* after an early error, wait this long for 'load' before giving up */
 
@@ -297,13 +310,14 @@
     var instance = null;
     mapPromise = loadLibrary().then(function(gl){
       return new Promise(function(resolve, reject){
-        var settled = false, loadTimer = null;
+        var settled = false, loadTimer = null, graceTimer = null;
         var giveUp = function(detail){
           if (settled) return;
           settled = true;
-          clearTimeout(loadTimer);
+          clearTimeout(loadTimer); clearTimeout(graceTimer);
           reject(fail('map', detail));
         };
+        var warned = Object.create(null); /* log each kind of map error once, not once per tile */
         gl.accessToken = TOKEN;
         try {
           instance = new gl.Map({ container: mapEl, style: STYLE, center: START.center, zoom: START.zoom, cooperativeGestures: true });
@@ -313,19 +327,19 @@
 
         instance.on('error', function(e){
           var status = e && e.error && e.error.status;
-          warn('Kartenfehler' + (status ? ' (HTTP ' + status + ')' : ''));
+          var key = (e && e.sourceId ? e.sourceId : 'stil') + ':' + (status || '');
+          if (!warned[key]) { warned[key] = true; warn('Kartenfehler' + (e && e.sourceId ? ' in ' + e.sourceId : '') + (status ? ' (HTTP ' + status + ')' : '')); }
           /* Tile/source errors are never fatal. Other early errors (style, sprite, glyphs) are only
              fatal if 'load' does not follow — a failed sprite still lets the map load. */
-          if (!settled && !(e && e.sourceId)) {
-            clearTimeout(loadTimer);
-            loadTimer = setTimeout(function(){ giveUp('Kartenstil konnte nicht geladen werden'); }, ERROR_GRACE);
+          if (!settled && !(e && e.sourceId) && !graceTimer) {
+            graceTimer = setTimeout(function(){ giveUp('Kartenstil konnte nicht geladen werden'); }, ERROR_GRACE);
           }
         });
 
         instance.on('load', function(){
           if (settled) return;
           settled = true;
-          clearTimeout(loadTimer);
+          clearTimeout(loadTimer); clearTimeout(graceTimer);
           map = instance;
           try {
             instance.resize();
@@ -337,7 +351,7 @@
               pointer(instance, 'werksverkauf');
             }
           } catch (e) { reject(fail('map', 'Kartenebenen konnten nicht angelegt werden')); return; }
-          addStoreLayer(instance).catch(function(err){ reportError(err, 'Tileset'); say(MSG.loadError); });
+          ensureStoreLayer(instance);
           resolve(instance);
         });
       });
@@ -346,7 +360,7 @@
       say(MSG.loadError);
       /* Clean up this attempt completely; a later search may retry with a fresh map */
       if (instance) { try { instance.remove(); } catch (e) {} }
-      if (map === instance) { map = null; popup = null; searchMarker = null; }
+      if (map === instance) { map = null; popup = null; searchMarker = null; storeLayerPromise = null; }
       mapPromise = null;
       throw err;
     });
@@ -455,7 +469,8 @@
     var signal = controller ? controller.signal : undefined;
     var current = function(){ if (id !== searchId) throw fail('aborted'); };
 
-    whenMap().catch(function(){}); /* start loading the map in parallel; search does not wait for it */
+    /* Start loading the map in parallel (search does not wait for it); retry the store layer if it failed */
+    whenMap().then(ensureStoreLayer).catch(function(){});
     say(MSG.searching);
 
     geocode(value, signal)
