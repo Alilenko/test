@@ -57,5 +57,15 @@ const LOAD='Die Karte konnte nicht geladen werden. Bitte später erneut versuche
   T.w.fetch=(u)=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(u.includes('geocode')?{features:[{geometry:{coordinates:[11,49]}}]}:{features:[{properties:{strasse:'Hauptstr.',hausnummer:1},geometry:{coordinates:[11,49]}}]})});
   search(T,'a');await tick(20);const nm=T.d.querySelector('[data-store-list] [data-store-name]');
   ok(nm&&nm.textContent==='Hauptstr. 1','6b store without a name still has a focusable control (street as label)');}
+ // street that stands in for a missing name is not repeated
+ {const T=setup({tpl:`<div data-store-card class="anfahrt_store is-card"><p data-store-name>M</p><p data-store-street>S</p><p data-store-city>C</p><a data-store-route href="#">R</a></div>`});
+  T.w.fetch=(u)=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(u.includes('geocode')?{features:[{geometry:{coordinates:[11,49]}}]}:{features:[{properties:{strasse:'Hauptstr.',hausnummer:1,plz:'92318',ort:'Neumarkt'},geometry:{coordinates:[11,49]}}]})});
+  search(T,'a');await tick(20);const c=T.d.querySelector('[data-store-list] [data-store-card]');
+  ok(c.querySelector('[data-store-name]').textContent==='Hauptstr. 1'&&!c.querySelector('[data-store-street]')&&c.querySelector('[data-store-city]').textContent==='92318 Neumarkt','label street not duplicated');}
+ // not-found / empty keep the map error
+ {const T=setup();T.tjFail=true;T.io([{isIntersecting:true}]);await tick();T.maps[0].fire('load');await tick(20);
+  T.w.fetch=(u)=>Promise.resolve(u.includes('.json?secure')?{ok:false,status:503}:{ok:true,status:200,json:()=>Promise.resolve({features:[]})});
+  search(T,'zzz');await tick(30);ok(msg(T)==='Diese PLZ oder dieser Ort wurde nicht gefunden. '+LOAD,'not-found keeps the map error ('+msg(T)+')');
+  search(T,'');await tick(5);ok(msg(T)==='Bitte PLZ oder Ort eingeben. '+LOAD,'empty input keeps the map error');}
  console.log(failures?failures+' FAILED':'ALL PASSED');
 })();

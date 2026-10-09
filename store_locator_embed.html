@@ -74,7 +74,7 @@
 
   var say = function(text){ if (message) message.textContent = text || ''; };
   /* Search results and map errors share one message line: a map error is appended, never replaces results */
-  var resultText = '', mapBroken = false;
+  var resultText = '', mapBroken = false, activeQuery = '';
   var showStatus = function(){ say(mapBroken ? (resultText ? resultText + ' ' : '') + MSG.loadError : resultText); };
   var mapError = function(){ mapBroken = true; showStatus(); };
   var mapRecovered = function(){
@@ -163,9 +163,10 @@
       if (!el) return;
       if (value) el.textContent = value; else el.remove();
     };
-    set('[data-store-name]', store.name || store.street || store.city); /* the name doubles as the select button */
-    set('[data-store-street]', store.street);
-    set('[data-store-city]', store.city);
+    var label = store.name || store.street || store.city; /* the name doubles as the select button */
+    set('[data-store-name]', label);
+    set('[data-store-street]', store.street === label ? '' : store.street);
+    set('[data-store-city]', store.city === label ? '' : store.city);
     set('[data-store-phone]', store.phone);
     var logo = q('[data-store-logo]', card);
     var chain = chains.get(store.chain);
@@ -381,7 +382,7 @@
       reportError(err, 'Karte');
       mapError();
       /* Clean up this attempt completely; a later search may retry with a fresh map */
-      if (instance) { try { instance.remove(); } catch (e) {} }
+      if (instance) { try { instance.remove(); } catch (e) { /* already torn down */ } }
       if (map === instance) { map = null; popup = null; searchMarker = null; }
       if (storeLayer && storeLayer.instance === instance) storeLayer = null;
       mapPromise = null;
@@ -410,7 +411,7 @@
   /* ---------- Search: geocode PLZ / place, then nearest stores via Tilequery ---------- */
 
   var stores = [];
-  var searchId = 0, searchController = null, activeQuery = '';
+  var searchId = 0, searchController = null;
 
   var geocode = function(value, signal){
     return getJson('https://api.mapbox.com/search/geocode/v6/forward?q=' + encodeURIComponent(value) + '&country=de&language=de&limit=1&types=postcode,place,locality,district,address&access_token=' + encodeURIComponent(TOKEN), 'Geocoding', signal)
@@ -437,7 +438,7 @@
   };
   setSearched(false);
 
-  var km = function(m){ return m / 1000 + ' km'; };
+  var km = function(m){ return (m / 1000).toLocaleString('de-DE') + ' km'; };
   var resultMessage = function(count, radius){
     if (!count) return MSG.none;
     if (count >= LIST_LIMIT) return 'Die ' + count + ' nächstgelegenen Märkte werden angezeigt.';
@@ -492,7 +493,7 @@
 
   var search = function(){
     var value = input ? input.value.trim() : '';
-    if (!value) { cancelSearch(); resultText = ''; say(MSG.empty); if (input) input.focus(); return; }
+    if (!value) { cancelSearch(); resultText = MSG.empty; showStatus(); if (input) input.focus(); return; }
     if (value === activeQuery) return; /* same search still running */
     cancelSearch();
     resultText = '';
@@ -534,8 +535,9 @@
       })
       .catch(function(err){
         if (isAbort(err) || id !== searchId) return;
-        if (err && err.kind === 'not-found') say(MSG.notFound);
-        else { reportError(err, 'Suche'); say(MSG.searchError); }
+        if (err && err.kind === 'not-found') resultText = MSG.notFound;
+        else { reportError(err, 'Suche'); resultText = MSG.searchError; }
+        showStatus();
       })
       .then(function(){
         if (id === searchId) { activeQuery = ''; searchController = null; }
