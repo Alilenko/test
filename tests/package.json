@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "jsdom tests for the BURGIS store locator embed",
   "scripts": {
-    "test": "node refactor_test.js && node reinit_test.js && node fix3_test.js && node review_test.js",
+    "test": "node refactor_test.js && node reinit_test.js && node fix3_test.js && node review_test.js && node recipe_details_test.js",
     "test:browser": "node browser/popup_test.js && node browser/anfahrt_test.js"
   },
   "devDependencies": {

@@ -1,0 +1,189 @@
+<style>
+[data-recipe-details] [hidden]{display:none !important}
+/* Steps are built by the script from the "Zubereitung" rich text */
+.recipe-details_steps{display:flex;flex-direction:column;row-gap:1.5rem;margin:0;padding:0;list-style:none}
+.recipe-details_step{display:flex;align-items:flex-start;column-gap:1.5rem}
+.recipe-details_step+.recipe-details_step{padding-top:1.5rem;border-top:1px solid rgba(0,0,0,.1)}
+.recipe-details_step-label{flex:none;padding:.5rem;border-radius:.5rem;background-color:#f7f7f7;color:#454545;font-weight:600;line-height:1.5;white-space:nowrap}
+.recipe-details_step-content{display:flex;flex:1;min-width:0;flex-direction:column;row-gap:.75rem;padding-top:.5rem}
+.recipe-details_step-meta{display:flex;align-items:flex-start;column-gap:.5rem;color:#454545;font-size:.875rem;line-height:1.5}
+.recipe-details_step-meta svg{flex:none;width:1rem;height:1rem;margin-top:.125rem}
+.recipe-details_step-text{margin:0;color:#224385;line-height:1.5}
+.recipe-details_step-check{display:flex;flex:none;width:1.5rem;height:1.5rem;margin-top:.5rem;padding:0;justify-content:center;align-items:center;border:1.5px solid rgba(0,0,0,.1);border-radius:50%;background:transparent;color:#fff;cursor:pointer;transition:background-color 200ms ease,border-color 200ms ease}
+.recipe-details_step-check svg{width:.875rem;height:.875rem;opacity:0}
+.recipe-details_step-check:hover{border-color:#224385}
+.recipe-details_step-check:focus-visible{outline:2px solid #224385;outline-offset:2px}
+.recipe-details_step.is-done .recipe-details_step-check{border-color:#224385;background-color:#224385}
+.recipe-details_step.is-done .recipe-details_step-check svg{opacity:1}
+.recipe-details_step.is-done .recipe-details_step-content,.recipe-details_step.is-done .recipe-details_step-label{opacity:.5}
+@media screen and (max-width:479px){
+.recipe-details_step{column-gap:1rem}
+}
+</style>
+
+<script>
+/* Recipe details: portion calculator, nutrition table, preparation steps.
+   Portions: [data-portions] with [data-portions-minus|plus], [data-portions-value] (CMS Portionen),
+   [data-portions-label], rows [data-ingredient] with [data-amount] (CMS Menge) + [data-amount-unit] (CMS Einheit).
+   Nutrition: [data-recipe-nutrition] is hidden when every [data-nutrition-value] is empty.
+   Steps: [data-steps-source] rich text — each heading starts a step, a paragraph starting with
+   "Zutaten:" or "Utensil:" becomes the line with an icon, other paragraphs are the step text. */
+(function(){
+  var root = document.querySelector('[data-recipe-details]');
+  if (!root || root.hasAttribute('data-recipe-init')) return;
+  root.setAttribute('data-recipe-init', '');
+
+  var forEach = function(list, fn){ Array.prototype.forEach.call(list, fn); };
+  var text = function(el){ return el ? (el.textContent || '').trim() : ''; };
+  var isEmpty = function(el){ return !el || el.classList.contains('w-dyn-bind-empty') || text(el) === ''; };
+  var toNumber = function(value){
+    var n = parseFloat(String(value).replace(/\s/g, '').replace(',', '.'));
+    return isFinite(n) ? n : null;
+  };
+  var format = function(n){ return n.toLocaleString('de-DE', { maximumFractionDigits: 1 }); };
+
+  /* ---------- Portions ---------- */
+
+  var MIN = 1, MAX = 20;
+  var stepper = root.querySelector('[data-portions]');
+  var valueEl = stepper && stepper.querySelector('[data-portions-value]');
+  var base = valueEl ? toNumber(text(valueEl)) : null;
+  if (stepper && base && base > 0) {
+    var minus = stepper.querySelector('[data-portions-minus]');
+    var plus = stepper.querySelector('[data-portions-plus]');
+    var labels = root.querySelectorAll('[data-portions-label]');
+    var amounts = [];
+    forEach(root.querySelectorAll('[data-ingredient]'), function(row){
+      var el = row.querySelector('[data-amount]');
+      var amount = el && !isEmpty(el) ? toNumber(text(el)) : null;
+      if (amount === null) return;
+      var unit = text(row.querySelector('[data-amount-unit]')).toLowerCase();
+      amounts.push({ el: el, amount: amount, whole: unit === 'g' || unit === 'ml' });
+      el.textContent = format(amount);
+    });
+
+    /* g and ml become whole numbers, everything else (Stück, EL, Packung …) half steps */
+    var scaled = function(item, portions){
+      var v = item.amount * portions / base;
+      if (item.whole) return Math.max(1, Math.round(v));
+      return Math.max(0.5, Math.round(v * 2) / 2);
+    };
+    var setDisabled = function(button, off){
+      if (!button) return;
+      button.disabled = off;
+      button.classList.toggle('is-disabled', off);
+    };
+    var current = Math.min(MAX, Math.max(MIN, Math.round(base)));
+    var render = function(){
+      valueEl.textContent = current;
+      forEach(labels, function(el){ el.textContent = current; });
+      amounts.forEach(function(item){ item.el.textContent = format(current === base ? item.amount : scaled(item, current)); });
+      setDisabled(minus, current <= MIN);
+      setDisabled(plus, current >= MAX);
+    };
+    var change = function(delta){
+      var next = Math.min(MAX, Math.max(MIN, current + delta));
+      if (next === current) return;
+      current = next;
+      render();
+    };
+    if (minus) minus.addEventListener('click', function(){ change(-1); });
+    if (plus) plus.addEventListener('click', function(){ change(1); });
+    render();
+  }
+
+  /* ---------- Nutrition ---------- */
+
+  var nutrition = root.querySelector('[data-recipe-nutrition]');
+  if (nutrition) {
+    var values = nutrition.querySelectorAll('[data-nutrition-value]');
+    var filled = 0;
+    forEach(values, function(el){
+      if (isEmpty(el)) {
+        var row = el.closest('[data-nutrition-row]');
+        var unit = row && row.querySelector('.recipes_tag-unit');
+        el.classList.remove('w-dyn-bind-empty');
+        el.textContent = '—';
+        if (unit) unit.hidden = true;
+        return;
+      }
+      filled++;
+      var n = toNumber(text(el));
+      if (n !== null) el.textContent = format(n);
+    });
+    if (!filled) nutrition.hidden = true;
+  }
+
+  /* ---------- Steps ---------- */
+
+  var source = root.querySelector('[data-steps-source]');
+  var ICONS = {
+    zutaten: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5 5.5H8.5M5 10.5H8.5M5 8H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 2H3C2.44772 2 2 2.44772 2 3V13C2 13.5523 2.44772 14 3 14H13C13.5523 14 14 13.5523 14 13V3C14 2.44772 13.5523 2 13 2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    utensil: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 2H12C12.2652 2 12.5196 2.10536 12.7071 2.29289C12.8946 2.48043 13 2.73478 13 3V7C13 7.53043 12.7893 8.03914 12.4142 8.41421C12.0391 8.78929 11.5304 9 11 9H5C4.46957 9 3.96086 8.78929 3.58579 8.41421C3.21071 8.03914 3 7.53043 3 7V3C3 2.73478 3.10536 2.48043 3.29289 2.29289C3.48043 2.10536 3.73478 2 4 2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 3.5H1.5M14.5 3.5H13M4 14H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    check: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5L6.5 12L13 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  };
+  var META = /^(zutaten|utensil(?:ien)?)\s*:\s*/i;
+
+  var el = function(tag, cls, html){
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (html) node.innerHTML = html;
+    return node;
+  };
+
+  if (source) {
+    var steps = [];
+    var step = null;
+    forEach(source.children, function(child){
+      if (/^H[1-6]$/.test(child.tagName)) {
+        step = { label: text(child), parts: [] };
+        steps.push(step);
+        return;
+      }
+      if (step && text(child)) step.parts.push(child);
+    });
+
+    if (steps.length) {
+      var list = el('ol', 'recipe-details_steps');
+      steps.forEach(function(s, i){
+        var item = el('li', 'recipe-details_step');
+        var label = el('div', 'recipe-details_step-label');
+        label.textContent = s.label || ('Schritt ' + (i + 1));
+        var content = el('div', 'recipe-details_step-content');
+        s.parts.forEach(function(part){
+          var match = part.tagName === 'P' && text(part).match(META);
+          if (match) {
+            var meta = el('div', 'recipe-details_step-meta', /^zutaten/i.test(match[1]) ? ICONS.zutaten : ICONS.utensil);
+            var span = el('span');
+            span.textContent = text(part).replace(META, '');
+            meta.appendChild(span);
+            content.appendChild(meta);
+            return;
+          }
+          if (part.tagName === 'P') {
+            var p = el('p', 'recipe-details_step-text');
+            p.innerHTML = part.innerHTML;
+            content.appendChild(p);
+            return;
+          }
+          content.appendChild(part.cloneNode(true));
+        });
+        var check = el('button', 'recipe-details_step-check', ICONS.check);
+        check.type = 'button';
+        check.setAttribute('aria-pressed', 'false');
+        check.setAttribute('aria-label', label.textContent + ' erledigt');
+        check.addEventListener('click', function(){
+          var done = item.classList.toggle('is-done');
+          check.setAttribute('aria-pressed', done ? 'true' : 'false');
+        });
+        item.appendChild(label);
+        item.appendChild(content);
+        item.appendChild(check);
+        list.appendChild(item);
+      });
+      source.parentNode.insertBefore(list, source);
+      source.hidden = true;
+    }
+  }
+})();
+</script>
