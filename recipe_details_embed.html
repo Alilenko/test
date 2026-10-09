@@ -68,9 +68,10 @@
       if (item.whole) return Math.max(1, Math.round(v));
       return Math.max(0.5, Math.round(v * 2) / 2);
     };
+    /* Webflow renders the arrows as links (a href="#"), so disabled state is set via aria-disabled */
     var setDisabled = function(button, off){
       if (!button) return;
-      button.disabled = off;
+      button.setAttribute('aria-disabled', off ? 'true' : 'false');
       button.classList.toggle('is-disabled', off);
     };
     var current = Math.min(MAX, Math.max(MIN, Math.round(base)));
@@ -87,8 +88,15 @@
       current = next;
       render();
     };
-    if (minus) minus.addEventListener('click', function(){ change(-1); });
-    if (plus) plus.addEventListener('click', function(){ change(1); });
+    var bind = function(button, delta){
+      if (!button) return;
+      button.addEventListener('click', function(e){ e.preventDefault(); change(delta); });
+      button.addEventListener('keydown', function(e){
+        if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); change(delta); }
+      });
+    };
+    bind(minus, -1);
+    bind(plus, 1);
     render();
   }
 

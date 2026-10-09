@@ -8,7 +8,7 @@ const row = (amount, unit, name) => `<div class="recipe-details_row" data-ingred
 const nrow = (key, v) => `<div data-nutrition-row="${key}"><div>${key}</div><div class="recipes_tag-time"><div data-nutrition-value="${key}" ${v === '' ? 'class="w-dyn-bind-empty"' : ''}>${v}</div><div class="recipes_tag-unit">g</div></div></div>`;
 const page = (nutr, rich) => `<!doctype html><body><div data-recipe-details>
  <div data-recipe-ingredients><div><div>Zutaten für</div><div data-portions-label>4</div><div>Personen</div></div>
-  <div data-portions><button class="slider_arrow" data-portions-minus></button><div data-portions-value>4</div><button class="slider_arrow" data-portions-plus></button></div>
+  <div data-portions><a href="#" role="button" class="slider_arrow w-button" data-portions-minus></a><div data-portions-value>4</div><a href="#" role="button" class="slider_arrow w-button" data-portions-plus></a></div>
   ${row('1', 'Packung', 'Herzelinos')}${row('100', 'g', 'Hähnchen')}${row('1', '', 'Mozzarella')}${row('80', 'ml', 'Sahne')}${row('', 'nach Geschmack', 'Salz')}${row('1.5', 'TL', 'Brühe')}
  </div>
  <div data-recipe-nutrition>${nutr}</div>
@@ -25,10 +25,14 @@ ok(d.querySelector('[data-portions-value]').textContent === '6' && d.querySelect
 ok(amounts().join('|') === '1,5|150|1,5|120||2,5', '6 portions scale: ' + amounts().join('|'));
 for (let i = 0; i < 10; i++) d.querySelector('[data-portions-minus]').click();
 ok(d.querySelector('[data-portions-value]').textContent === '1', 'minimum is 1');
-ok(d.querySelector('[data-portions-minus]').disabled && d.querySelector('[data-portions-minus]').classList.contains('is-disabled'), 'minus disabled at 1');
+ok(d.querySelector('[data-portions-minus]').getAttribute('aria-disabled') === 'true' && d.querySelector('[data-portions-minus]').classList.contains('is-disabled'), 'minus aria-disabled at 1');
 ok(amounts().join('|') === '0,5|25|0,5|20||0,5', '1 portion: ' + amounts().join('|'));
 for (let i = 0; i < 30; i++) d.querySelector('[data-portions-plus]').click();
-ok(d.querySelector('[data-portions-value]').textContent === '20' && d.querySelector('[data-portions-plus]').disabled, 'maximum is 20, plus disabled');
+ok(d.querySelector('[data-portions-value]').textContent === '20' && d.querySelector('[data-portions-plus]').getAttribute('aria-disabled') === 'true', 'maximum is 20, plus aria-disabled');
+const ev = new d.defaultView.MouseEvent('click', { bubbles: true, cancelable: true }); d.querySelector('[data-portions-minus]').dispatchEvent(ev);
+ok(ev.defaultPrevented && d.querySelector('[data-portions-value]').textContent === '19', 'link click does not navigate and changes portions');
+d.querySelector('[data-portions-plus]').dispatchEvent(new d.defaultView.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+ok(d.querySelector('[data-portions-value]').textContent === '20', 'space key works on the link button');
 for (let i = 0; i < 16; i++) d.querySelector('[data-portions-minus]').click();
 ok(amounts().join('|') === '1|100|1|80||1,5', 'back to 4 shows original amounts');
 ok(d.querySelector('[data-recipe-nutrition]').hidden, 'empty nutrition block is hidden');
