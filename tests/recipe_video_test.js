@@ -1,52 +1,50 @@
-/* jsdom tests for recipe_video_embed.html: click-to-play YouTube with consent notice. Run: node recipe_video_test.js */
+/* jsdom tests for recipe_video_embed.html: click-to-play video cards from links or IDs. Run: node recipe_video_test.js */
 const { JSDOM } = require('jsdom');
 const fs = require('fs'); const path = require('path');
 const embed = fs.readFileSync(path.join(__dirname, '..', 'recipe_video_embed.html'), 'utf8');
 let failures = 0;
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) failures++; };
-const page = (url, category, extra) => `<!doctype html><body>${extra || ''}<div class="recipe-video_component" data-recipe-video data-video-url="${url}" data-consent-category="${category}">
- <div class="recipe-video_player" data-video-player role="button" tabindex="0" aria-label="Rezeptvideo abspielen"><img class="recipe-video_image" src="x.jpg" alt=""><div class="video-overlay-layer"></div><div class="lightbox-play-icon"></div></div>
-</div>${embed}</body>`;
-const run = (html, cookie) => {
-  const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'https://burgis.example/rezepte/x', beforeParse(w) { if (cookie) w.document.cookie = cookie; } });
+const card = attrs => `<div class="video_wrap" ${attrs} data-video-title="Herzelinosauflauf"><img src="x.jpg" alt=""><div class="play_button_wrap"></div><div class="video_overlay"></div></div>`;
+const run = cards => {
+  const dom = new JSDOM(`<!doctype html><body>${cards}${embed}</body>`, { runScripts: 'dangerously' });
+  dom.window.matchMedia = () => ({ matches: false });
+  dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
   return dom.window.document;
 };
-const iframe = d => d.querySelector('.recipe-video_iframe');
+const play = (d, i = 0) => { const c = d.querySelectorAll('.video_wrap')[i]; c.click(); return c.querySelector('iframe'); };
+const esc = s => s.replace(/"/g, '&quot;');
 
-let d = run(page('https://www.youtube.com/watch?v=plBYJdadYHQ', 'marketing'));
-ok(!iframe(d) && !d.querySelector('iframe'), 'nothing from YouTube before click');
-d.querySelector('[data-video-player]').click();
-ok(!iframe(d) && d.querySelector('.recipe-video_consent'), 'no consent: click shows notice, no iframe');
-ok(!d.querySelector('.recipe-video_consent').textContent.includes('Cookie-Einstellungen'), 'no Finsweet on page: no settings button');
-d.querySelector('[data-video-accept]').click();
-ok(iframe(d) && iframe(d).src === 'https://www.youtube-nocookie.com/embed/plBYJdadYHQ?autoplay=1&rel=0&playsinline=1', 'accept loads nocookie player: ' + (iframe(d) && iframe(d).src));
-ok(!d.querySelector('.recipe-video_consent') && d.querySelector('[data-video-player]').classList.contains('is-playing'), 'notice removed, player is-playing');
-d.querySelector('[data-video-player]').click();
-ok(d.querySelectorAll('iframe').length === 1, 'second click does not add a second iframe');
+const cases = [
+  ['data-video-url="https://www.youtube.com/watch?v=plBYJdadYHQ"', 'youtube-nocookie.com/embed/plBYJdadYHQ?', 'watch link'],
+  ['data-video-url="https://youtube.com/watch?v=eSv0vi1eg2Q&t=10s"', '/embed/eSv0vi1eg2Q?', 'watch link with extra params'],
+  ['data-video-url="https://www.youtube.com/shorts/-rWbBqIyYj0"', '/embed/-rWbBqIyYj0?', 'shorts link'],
+  ['data-video-url="https://youtu.be/-J24urNb5v8"', '/embed/-J24urNb5v8?', 'youtu.be link'],
+  ['data-video-url="https://vimeo.com/1056575566"', 'player.vimeo.com/video/1056575566?', 'vimeo link'],
+  ['data-video-url="https://player.vimeo.com/video/1056575566"', 'player.vimeo.com/video/1056575566?', 'vimeo player link'],
+  ['data-vimeo="1056575566"', 'player.vimeo.com/video/1056575566?', 'old data-vimeo with ID'],
+  ['data-youtube="plBYJdadYHQ"', '/embed/plBYJdadYHQ?', 'old data-youtube with ID'],
+  ['data-vimeo="https://www.youtube.com/shorts/-rWbBqIyYj0"', '/embed/-rWbBqIyYj0?', 'YouTube link in data-vimeo still plays YouTube'],
+  ['data-video-url="' + esc('<iframe src="//cdn.embedly.com/widgets/media.html?src=https%3A%2F%2Fwww.youtube.com%2Fembed%2FeSv0vi1eg2Q%3Ffeature%3Doembed"></iframe>') + '"', '/embed/eSv0vi1eg2Q?', 'embedly iframe html'],
+];
+for (const [attrs, expect, name] of cases) {
+  const d = run(card(attrs));
+  ok(!d.querySelector('iframe'), name + ': nothing loaded before click');
+  const iframe = play(d);
+  ok(iframe && iframe.src.includes(expect), name + ': ' + (iframe && iframe.src));
+}
 
-const granted = 'fs-cc=' + encodeURIComponent(JSON.stringify({ id: 'a', consents: { analytics: false, marketing: true, personalization: false } }));
-d = run(page('https://www.youtube.com/shorts/-rWbBqIyYj0', 'marketing'), granted);
-d.querySelector('[data-video-player]').click();
-ok(iframe(d) && iframe(d).src.includes('/embed/-rWbBqIyYj0?'), 'Finsweet marketing consent: plays at once (shorts link)');
+let d = run(card('data-video-url="https://www.youtube.com/watch?v=plBYJdadYHQ"'));
+const c = d.querySelector('.video_wrap');
+ok(c.getAttribute('role') === 'button' && c.getAttribute('aria-label') === 'Video abspielen: Herzelinosauflauf', 'button role and label from title');
+c.dispatchEvent(new d.defaultView.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+ok(c.querySelector('iframe') && c.querySelector('img').hidden && !c.hasAttribute('role'), 'Enter plays, poster hidden, role removed');
+c.click();
+ok(c.querySelectorAll('iframe').length === 1, 'second click does not add a second iframe');
 
-const denied = 'fs-cc=' + encodeURIComponent(JSON.stringify({ id: 'a', consents: { marketing: false } }));
-d = run(page('https://youtu.be/eSv0vi1eg2Q', 'marketing', '<a href="#" fs-cc="open-preferences">prefs</a>'), denied);
-let opened = 0; d.querySelector('[fs-cc="open-preferences"]').addEventListener('click', e => { e.preventDefault(); opened++; });
-d.querySelector('[data-video-player]').dispatchEvent(new d.defaultView.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-ok(!iframe(d) && d.querySelector('.recipe-video_consent'), 'consent denied: Enter shows notice');
-const prefsBtn = [...d.querySelectorAll('.recipe-video_consent button')].find(b => b.textContent === 'Cookie-Einstellungen');
-ok(!!prefsBtn, 'Finsweet present: settings button shown');
-prefsBtn.click();
-ok(opened === 1 && !iframe(d), 'settings button opens Finsweet preferences, no video');
-
-d = run(page('https://youtube.com/watch?v=-J24urNb5v8', ''));
-d.querySelector('[data-video-player]').click();
-ok(iframe(d) && iframe(d).src.includes('/embed/-J24urNb5v8?'), 'empty consent category: plays at once');
-
-d = run(page('', 'marketing'));
-ok(d.querySelector('[data-recipe-video]').hidden, 'no link: block hidden');
-d = run(page('https://example.com/video', 'marketing'));
-ok(d.querySelector('[data-recipe-video]').hidden, 'non-YouTube link: block hidden');
+d = run(card('data-video-url=""'));
+ok(d.querySelector('.video_wrap').style.display === 'none', 'empty CMS video: card hidden');
+d = run(card('data-video-url="https://example.com/clip"'));
+ok(d.querySelector('.video_wrap').style.display === 'none', 'unknown link: card hidden');
 
 console.log(failures ? failures + ' FAILED' : 'ALL PASSED');
 process.exit(failures ? 1 : 0);

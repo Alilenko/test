@@ -1,94 +1,113 @@
-<style>
-[data-recipe-video][hidden]{display:none !important}
-.recipe-video_iframe{position:absolute;inset:0;z-index:3;width:100%;height:100%;border:0}
-.recipe-video_player.is-playing{cursor:auto}
-.recipe-video_player.is-playing>:not(.recipe-video_iframe),.recipe-video_player.is-consent .lightbox-play-icon{visibility:hidden}
-.recipe-video_player:focus-visible{outline:2px solid var(--_primitives---colors--accent);outline-offset:4px}
-.recipe-video_consent{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;justify-content:center;align-items:center;row-gap:1rem;padding:1.5rem;background-color:var(--_primitives---opacity--neutral-darkest-60);color:var(--_primitives---colors--white);text-align:center;cursor:auto}
-.recipe-video_consent p{max-width:32rem;margin:0;font-size:1rem;line-height:1.5}
-.recipe-video_consent-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:.75rem}
-.recipe-video_consent button{padding:.75rem 1.5rem;border:1px solid var(--_primitives---colors--white);border-radius:100vw;background:transparent;color:inherit;font:inherit;font-weight:600;cursor:pointer}
-.recipe-video_consent button[data-video-accept]{border-color:var(--_primitives---colors--accent);background-color:var(--_primitives---colors--accent);color:var(--_primitives---colors--primary)}
-</style>
-
 <script>
-/* Recipe video: click-to-play YouTube player inside the block, no lightbox.
-   [data-recipe-video] carries data-video-url (CMS "YouTube-Link") and data-consent-category.
-   Nothing is loaded from YouTube before the click; the player uses youtube-nocookie.com.
-   Consent (Finsweet Cookie Consent): if the "fs-cc" cookie grants the category, the click plays at once;
-   otherwise a notice asks for one more click (two-click solution). Empty data-consent-category = no notice.
-   Without a valid YouTube link the whole block is hidden. */
-(function(){
-  var blocks = document.querySelectorAll('[data-recipe-video]');
-  if (!blocks.length) return;
-
-  var youtubeId = function(url){
-    var m = String(url || '').match(/(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:[^#]*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-    return m ? m[1] : null;
-  };
-
-  /* Finsweet stores the choice in the "fs-cc" cookie: {"consents":{"marketing":true,...}} */
-  var hasConsent = function(category){
-    if (!category) return true;
-    var match = document.cookie.match(/(?:^|;\s*)fs-cc=([^;]*)/);
-    if (!match) return false;
-    try { var data = JSON.parse(decodeURIComponent(match[1])); return !!(data && data.consents && data.consents[category] === true); }
-    catch (e) { return false; }
-  };
-
-  Array.prototype.forEach.call(blocks, function(block){
-    if (block.hasAttribute('data-video-init')) return;
-    block.setAttribute('data-video-init', '');
-    var id = youtubeId(block.getAttribute('data-video-url'));
-    var player = block.querySelector('[data-video-player]');
-    if (!id || !player) { block.hidden = true; return; }
-    var category = (block.getAttribute('data-consent-category') || '').trim();
-    var notice = null;
-
-    var play = function(){
-      if (player.classList.contains('is-playing')) return;
-      if (notice) { notice.remove(); notice = null; player.classList.remove('is-consent'); }
-      var iframe = document.createElement('iframe');
-      iframe.className = 'recipe-video_iframe';
-      iframe.src = 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&rel=0&playsinline=1';
-      iframe.title = player.getAttribute('aria-label') || 'YouTube-Video';
-      iframe.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
-      iframe.setAttribute('allowfullscreen', '');
-      player.appendChild(iframe);
-      player.classList.add('is-playing');
-      player.removeAttribute('role');
-      player.removeAttribute('tabindex');
-      iframe.focus();
-    };
-
-    var showNotice = function(){
-      if (notice) return;
-      notice = document.createElement('div');
-      notice.className = 'recipe-video_consent';
-      notice.innerHTML = '<p>Beim Abspielen wird das Video von YouTube geladen. Dabei werden Daten an YouTube (Google) übertragen.</p><div class="recipe-video_consent-actions"><button type="button" data-video-accept>Video abspielen</button></div>';
-      var prefs = document.querySelector('[fs-cc="open-preferences"]');
-      if (prefs) {
-        var more = document.createElement('button');
-        more.type = 'button';
-        more.textContent = 'Cookie-Einstellungen';
-        more.addEventListener('click', function(){ prefs.click(); });
-        notice.lastChild.appendChild(more);
+document.addEventListener("DOMContentLoaded", function () {
+  /* Video cards: [data-video-url] takes a YouTube or Vimeo link (e.g. the CMS "Video" field),
+     the provider is detected from the link. [data-youtube] / [data-vimeo] still accept an ID or a link.
+     The player (youtube-nocookie / vimeo) is loaded only after the click.
+     A card whose attributes are all empty (recipe without video) is hidden. */
+  function decode(value) {
+    let text = String(value || "").replace(/&amp;/g, "&");
+    for (let i = 0; i < 2; i++) {
+      try {
+        const next = decodeURIComponent(text);
+        if (next === text) break;
+        text = next;
+      } catch (error) {
+        break;
       }
-      notice.querySelector('[data-video-accept]').addEventListener('click', play);
-      player.appendChild(notice);
-      player.classList.add('is-consent');
-      notice.querySelector('[data-video-accept]').focus();
-    };
-
-    var activate = function(e){
-      if (player.classList.contains('is-playing') || (notice && notice.contains(e.target))) return;
-      if (hasConsent(category)) play(); else showNotice();
-    };
-    player.addEventListener('click', activate);
-    player.addEventListener('keydown', function(e){
-      if (e.target !== player) return;
-      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); activate(e); }
+    }
+    return text.trim();
+  }
+  function findYoutubeId(text) {
+    const match = text.match(/(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:[^#\s"']*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    return match ? match[1] : "";
+  }
+  function findVimeoId(text) {
+    const match = text.match(/vimeo\.com\/(?:.*?\/)?(?:video\/)?(\d{6,})/);
+    return match ? match[1] : "";
+  }
+  /* An attribute may hold a plain ID (e.g. data-vimeo="1056575566") or any link */
+  function getVideo(card) {
+    const url = decode(card.getAttribute("data-video-url"));
+    const youtube = decode(card.getAttribute("data-youtube"));
+    const vimeo = decode(card.getAttribute("data-vimeo"));
+    const youtubeId = findYoutubeId(url) || findYoutubeId(youtube) || findYoutubeId(vimeo) || (/^[A-Za-z0-9_-]{11}$/.test(youtube) ? youtube : "");
+    if (youtubeId) return { provider: "youtube", id: youtubeId };
+    const vimeoId = findVimeoId(url) || findVimeoId(vimeo) || (/^\d+$/.test(vimeo) ? vimeo : "");
+    if (vimeoId) return { provider: "vimeo", id: vimeoId };
+    return null;
+  }
+  function getVideoTitle(card, provider) {
+    return card.getAttribute("data-video-title")?.trim() ||
+      (provider === "youtube" ? "YouTube video" : "Vimeo video");
+  }
+  document.querySelectorAll("[data-video-url], [data-youtube], [data-vimeo]").forEach(card => {
+    if (card.dataset.videoInit === "true") return;
+    card.dataset.videoInit = "true";
+    const video = getVideo(card);
+    if (!video) {
+      card.style.setProperty("display", "none", "important");
+      return;
+    }
+    const provider = video.provider;
+    const videoId = video.id;
+    const videoTitle = getVideoTitle(card, provider);
+    card.setAttribute("role", "button");
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("aria-label", `Video abspielen: ${videoTitle}`);
+    function playVideo() {
+      if (card.dataset.videoLoaded === "true") return;
+      card.dataset.videoLoaded = "true";
+      if (window.matchMedia("(max-width: 767px)").matches) {
+        const videoBottom = card.querySelector("[data-video-bottom]");
+        if (videoBottom) {
+          videoBottom.style.setProperty("display", "none", "important");
+        }
+      }
+      Array.from(card.children).forEach(child => {
+        if (child.tagName !== "IFRAME") {
+          child.hidden = true;
+        }
+      });
+      const iframe = document.createElement("iframe");
+      if (provider === "youtube") {
+        iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&controls=1&rel=0&playsinline=1&iv_load_policy=3`;
+        iframe.setAttribute(
+          "allow",
+          "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        );
+      }
+      if (provider === "vimeo") {
+        iframe.src = `https://player.vimeo.com/video/${videoId}?autoplay=1&playsinline=1`;
+        iframe.setAttribute("allow", "autoplay; fullscreen; picture-in-picture");
+      }
+      iframe.setAttribute("frameborder", "0");
+      iframe.setAttribute("allowfullscreen", "");
+      iframe.setAttribute("title", videoTitle);
+      card.appendChild(iframe);
+      card.removeAttribute("role");
+      card.removeAttribute("tabindex");
+      card.removeAttribute("aria-label");
+    }
+    card.addEventListener("click", playVideo);
+    card.addEventListener("keydown", function (event) {
+      if (event.target !== card) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        playVideo();
+      }
     });
   });
-})();
+
+  const target = document.querySelector("[data-radio-target]");
+  if (!target) return;
+
+  document.querySelectorAll(".filter_radio_item").forEach(item => {
+    item.addEventListener("click", function () {
+      const textEl = item.querySelector("[data-radio-text]");
+      const text = textEl?.getAttribute("data-radio-text")?.trim() || " ";
+
+      target.textContent = `\u00A0${text}\u00A0`;
+    });
+  });
+});
 </script>
