@@ -1,0 +1,8 @@
+<script>
+/* Brands-Anzahl aus dem CMS (Feld "Brands Anzahl" in CTA Button) in die Überschrift schreiben */
+document.querySelectorAll('[data-brands-source]').forEach(function (src) {
+  var v = (src.getAttribute('value') || '').trim();
+  if (!v) return;
+  document.querySelectorAll('[data-brands-count]').forEach(function (t) { t.textContent = v; });
+});
+</script>

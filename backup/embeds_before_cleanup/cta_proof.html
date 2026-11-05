@@ -1,0 +1,10 @@
+<style>
+/* CTA Proof: Subline aus CMS (Rich Text) – fett markierter Teil wird hervorgehoben */
+.cta_proof_subline{color:color-mix(in srgb,currentColor 80%,transparent)}
+.cta_proof_subline p{margin:0}
+.cta_proof_subline strong{color:#fff;font-weight:600}
+.section_light .cta_proof_subline strong{color:#0a0a0a}
+/* Prop "Links ausrichten": Button und Avatare linksbündig */
+.cta_proof:has(>[data-cta-left]){align-items:flex-start}
+.cta_proof:has(>[data-cta-left]) .cta_proof_button,.cta_proof:has(>[data-cta-left]) .cta_proof_row{justify-content:flex-start}
+</style>

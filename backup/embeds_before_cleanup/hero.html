@@ -1,0 +1,18 @@
+<style>
+@keyframes logoMarquee{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
+.logo_marquee_track{animation:logoMarquee 95s linear infinite;will-change:transform}
+@media (prefers-reduced-motion:reduce){.logo_marquee_track{animation:none}}
+/* Hero: KPI-Karten ausblenden, sobald das Video startet (nur Desktop, wo sie das Video überlappen) */
+@media (min-width:992px){
+.hero_kpi_list{transition:opacity .4s ease,visibility .4s ease}
+.hero_event_video:has([data-video-loaded="true"]) .hero_kpi_list{opacity:0;visibility:hidden;pointer-events:none}
+}
+@media (prefers-reduced-motion:reduce){.hero_kpi_list{transition:none}}
+/* Hero: KPI-Karten am Rand des Containers statt am Bildschirmrand (cqw = % der Containerbreite).
+   Breit: max. 12.625rem bzw. 11.25rem neben dem Video (wie im Figma). Schmal oder große Schrift: bündig am Containerrand. */
+.hero_event .container-large{container-type:inline-size}
+@media (min-width:992px){
+.hero_kpi_left{left:max(-12.625rem, calc(50% - 50cqw))}
+.hero_kpi_right{right:max(-11.25rem, calc(50% - 50cqw))}
+}
+</style>
