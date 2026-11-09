@@ -1,0 +1,156 @@
+<style>
+/* Profit-System: Tabs */
+.saeulen_tab.is-active{background-image:linear-gradient(159deg,rgba(255,255,255,.15) 0%,rgba(255,255,255,.05) 100%);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
+.saeulen_tab.is-active .saeulen_tab_name{color:#fff}
+.saeulen_tab.is-active::after{content:"";position:absolute;left:50%;top:100%;width:2px;height:3.375rem;transform:translateX(-50%);border-radius:2px;background:linear-gradient(180deg,rgba(235,50,50,0) 0%,rgba(235,50,50,.85) 45%,#e1bf6e 100%);box-shadow:0 0 14px rgba(235,50,50,.55);pointer-events:none;z-index:2}
+.saeulen_tab.is-active::before{content:"";position:absolute;left:50%;top:calc(100% + 3.375rem - 6px);width:12px;height:12px;transform:translateX(-50%);border-radius:50%;background:#eed595;box-shadow:0 0 0 4px rgba(225,191,110,.25),0 0 18px 4px rgba(225,191,110,.8);pointer-events:none;z-index:2}
+[data-saeulen] .slider_arrow:focus-visible{outline:2px solid #e1bf6e;outline-offset:2px}
+/* Profit-System: Slider */
+.saeulen_slide.swiper-slide-active{opacity:1}
+/* Profit-System: Liste */
+.saeulen_card_list ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:.875rem}
+.saeulen_card_list li{position:relative;margin:0;padding-left:2.125rem}
+.saeulen_card_list li::before{content:"";position:absolute;left:0;top:.2em;width:1.125rem;height:1.125rem;background-color:#e1bf6e;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M400-304 240-464l56-56 104 104 264-264 56 56-320 320Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M400-304 240-464l56-56 104 104 264-264 56 56-320 320Z'/%3E%3C/svg%3E") center/contain no-repeat}
+.saeulen_card_list strong{color:#fff;font-weight:700}
+@media (max-width:991px){.saeulen_tab.is-active::after,.saeulen_tab.is-active::before{display:none}}
+@media (prefers-reduced-motion:reduce){.saeulen_slide,.saeulen_tab{transition:none}}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded',function(){
+  document.querySelectorAll('[data-saeulen]').forEach(function(root,r){
+    var el=root.querySelector('.saeulen_slider');
+    if(!el||typeof Swiper==='undefined')return;
+    var tabs=[].slice.call(root.querySelectorAll('.saeulen_tab'));
+    var slides=[].slice.call(el.querySelectorAll('.saeulen_slide'));
+    var tabList=root.querySelector('.saeulen_tabs_list');
+    var prev=root.querySelector('[data-saeulen-prev]');
+    var next=root.querySelector('[data-saeulen-next]');
+    if(tabList){tabList.setAttribute('role','tablist');tabList.setAttribute('aria-label','Die 5 Säulen');}
+    /* Tabs und Karten verknüpfen (Tab -> Panel) */
+    slides.forEach(function(s,i){
+      var id='saeule-'+r+'-'+i;
+      s.id=id;
+      s.setAttribute('role','tabpanel');
+      if(tabs[i]){
+        tabs[i].id=id+'-tab';
+        tabs[i].setAttribute('aria-controls',id);
+        s.setAttribute('aria-labelledby',id+'-tab');
+      }
+    });
+    /* Label 'Nächste Säule' aus dem Namen der nächsten Karte */
+    slides.forEach(function(s,i){
+      var nx=slides[(i+1)%slides.length];
+      var nameEl=nx&&nx.querySelector('.saeulen_card_name');
+      var label=s.querySelector('[data-saeule-next-name]');
+      if(label&&nameEl)label.textContent=(label.getAttribute('data-saeule-next-name')||'')+nameEl.textContent.trim();
+    });
+    var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var swiper=new Swiper(el,{
+      wrapperClass:'saeulen_list',
+      slideClass:'saeulen_slide',
+      slidesPerView:'auto',
+      spaceBetween:32,
+      speed:reduce?0:600,
+      grabCursor:true,
+      watchSlidesProgress:true,
+      /* Pfeile unter dem Slider (wie im Figma) */
+      navigation:{prevEl:prev,nextEl:next,disabledClass:'is-disabled'},
+      a11y:{enabled:false}, /* Rollen setzen wir selbst (Tabs/Panels) */
+      breakpoints:{0:{spaceBetween:16},768:{spaceBetween:24},992:{spaceBetween:32}}
+    });
+    [prev,next].forEach(function(b){if(b)b.addEventListener('click',function(e){e.preventDefault();});});
+    function setActive(index){
+      tabs.forEach(function(tab,i){
+        var active=i===index;
+        tab.classList.toggle('is-active',active);
+        tab.setAttribute('aria-selected',active?'true':'false');
+        tab.setAttribute('tabindex',active?'0':'-1');
+      });
+      /* Nur die aktive Karte ist für Tastatur und Screenreader erreichbar */
+      slides.forEach(function(s,i){s.inert=i!==index;});
+      var current=tabs[index];
+      var scroller=root.querySelector('.saeulen_tabs');
+      if(current&&scroller&&scroller.scrollWidth>scroller.clientWidth){
+        scroller.scrollTo({left:current.offsetLeft-(scroller.clientWidth-current.offsetWidth)/2,behavior:reduce?'auto':'smooth'});
+      }
+    }
+    tabs.forEach(function(tab,i){
+      tab.setAttribute('role','tab');
+      tab.addEventListener('click',function(e){e.preventDefault();swiper.slideTo(i);});
+      tab.addEventListener('keydown',function(e){
+        var k=e.key,n=null;
+        if(k==='ArrowRight')n=(i+1)%tabs.length;
+        else if(k==='ArrowLeft')n=(i-1+tabs.length)%tabs.length;
+        else if(k==='Home')n=0;
+        else if(k==='End')n=tabs.length-1;
+        else if(k==='Enter'||k===' '){e.preventDefault();swiper.slideTo(i);return;}
+        if(n!==null){e.preventDefault();swiper.slideTo(n);tabs[n].focus();}
+      });
+    });
+    function goNext(){
+      var n=swiper.activeIndex>=slides.length-1?0:swiper.activeIndex+1;
+      swiper.slideTo(n);
+      if(tabs[n])tabs[n].focus({preventScroll:true});
+    }
+    root.querySelectorAll('[data-saeule-next]').forEach(function(btn){
+      btn.setAttribute('role','button');
+      btn.addEventListener('click',function(e){e.preventDefault();goNext();});
+      btn.addEventListener('keydown',function(e){if(e.key===' '){e.preventDefault();goNext();}});
+    });
+    swiper.on('slideChange',function(){setActive(swiper.activeIndex);});
+    setActive(swiper.activeIndex||0);
+  });
+});
+</script>
+<style>
+/* Profit-System: goldene Kontur läuft beim Aktivieren einer Karte einmal außen um die Karte (startet am Punkt unter dem Tab) */
+.saeulen_slide{position:relative}
+.saeulen_outline{position:absolute;pointer-events:none;z-index:3;overflow:visible}
+.saeulen_outline .o-line{fill:none;stroke:#e1bf6e;stroke-width:1.5;stroke-linecap:round;filter:drop-shadow(0 0 6px rgba(225,191,110,.35))}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded',function(){
+  var NS='http://www.w3.org/2000/svg',DURATION=3000,EASE='cubic-bezier(.37,0,.63,1)',P=40;
+  var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var mobile=matchMedia('(max-width: 991px)');
+  document.querySelectorAll('[data-saeulen]').forEach(function(root){
+    var el=root.querySelector('.saeulen_slider');
+    if(!el||!el.swiper)return;
+    var sw=el.swiper,seen=false;
+    function cardOf(i){var s=sw.slides[i];return s&&(s.querySelector('[data-saeule-card],.saeulen_item,.saeulen_card')||s);}
+    function clear(){root.querySelectorAll('.saeulen_outline').forEach(function(o){o.remove();});}
+    function draw(animate){
+      clear();
+      var slide=sw.slides[sw.activeIndex],card=cardOf(sw.activeIndex);if(!slide||!card)return;
+      var cr=card.getBoundingClientRect(),sr=slide.getBoundingClientRect();
+      var tab=root.querySelector('.saeulen_tab.is-active'),useDot=tab&&!mobile.matches;
+      /* Abstand zur Karte: so, dass die Linie oben durch den Punkt läuft (3–12 px), mobil 6 px */
+      var g=6;
+      if(useDot){var tr=tab.getBoundingClientRect(),rem=parseFloat(getComputedStyle(document.documentElement).fontSize)||16;g=Math.min(12,Math.max(3,cr.top-(tr.bottom+3.375*rem)));}
+      var w=cr.width+2*g,h=cr.height+2*g,s=1;
+      var r=Math.max(0,Math.min((parseFloat(getComputedStyle(card).borderTopLeftRadius)||0)+g,w/2,h/2)-s);
+      var x=useDot?tr.left+tr.width/2-cr.left+g:s+r;
+      x=Math.min(Math.max(x,s+r),w-s-r);
+      var d='M'+x+','+s+'H'+(s+r)+'A'+r+','+r+' 0 0 0 '+s+','+(s+r)+'V'+(h-s-r)+'A'+r+','+r+' 0 0 0 '+(s+r)+','+(h-s)+
+        'H'+(w-s-r)+'A'+r+','+r+' 0 0 0 '+(w-s)+','+(h-s-r)+'V'+(s+r)+'A'+r+','+r+' 0 0 0 '+(w-s-r)+','+s+'H'+x;
+      var svg=document.createElementNS(NS,'svg');svg.setAttribute('class','saeulen_outline');svg.setAttribute('aria-hidden','true');
+      svg.setAttribute('width',w+2*P);svg.setAttribute('height',h+2*P);
+      svg.style.left=(cr.left-sr.left-g-P)+'px';svg.style.top=(cr.top-sr.top-g-P)+'px';
+      svg.innerHTML='<g transform="translate('+P+' '+P+')"><path class="o-line"/></g>';
+      slide.appendChild(svg);
+      var line=svg.querySelector('.o-line');line.setAttribute('d',d);
+      var len=line.getTotalLength();line.style.strokeDasharray=len;
+      if(!animate||reduce||!line.animate){line.style.strokeDashoffset=0;return;}
+      line.animate([{strokeDashoffset:len},{strokeDashoffset:0}],{duration:DURATION,easing:EASE,fill:'both'});
+    }
+    /* Während die Karte fährt: Kontur ausblenden; erst wenn sie steht, vom Punkt aus neu zeichnen */
+    sw.on('slideChange',clear);
+    sw.on('slideChangeTransitionEnd',function(){draw(true);});
+    /* Erste Karte: Kontur erst zeichnen, wenn die Sektion sichtbar wird */
+    if('IntersectionObserver' in window){
+      new IntersectionObserver(function(e,o){if(e[0].isIntersecting&&!seen){seen=true;draw(true);o.disconnect();}},{threshold:.35}).observe(cardOf(sw.activeIndex)||el);
+    }else{seen=true;draw(false);}
+    var tm;addEventListener('resize',function(){clearTimeout(tm);tm=setTimeout(function(){if(seen)draw(false);},150);});
+  });
+});
+</script>
