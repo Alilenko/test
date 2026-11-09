@@ -2,12 +2,12 @@
 /* Profit-System: goldene Kontur läuft beim Aktivieren einer Karte einmal außen um die Karte (startet am Punkt unter dem Tab) */
 .saeulen_slide{position:relative}
 .saeulen_outline{position:absolute;pointer-events:none;z-index:3;overflow:visible}
-.saeulen_outline .o-line{fill:none;stroke:#e1bf6e;stroke-width:2;stroke-linecap:round;filter:drop-shadow(0 0 3px rgba(238,213,149,.9)) drop-shadow(0 0 12px rgba(225,191,110,.55))}
+.saeulen_outline .o-line{fill:none;stroke:#e1bf6e;stroke-width:1.5;stroke-linecap:round;filter:drop-shadow(0 0 6px rgba(225,191,110,.35))}
 .saeulen_outline .o-spark{fill:none;stroke:#fff3cc;stroke-width:3;stroke-linecap:round;opacity:0;filter:drop-shadow(0 0 4px #fff) drop-shadow(0 0 14px rgba(238,213,149,.95))}
 </style>
 <script>
 document.addEventListener('DOMContentLoaded',function(){
-  var NS='http://www.w3.org/2000/svg',DURATION=2000,EASE='cubic-bezier(.45,0,.25,1)',SPARK=36;
+  var NS='http://www.w3.org/2000/svg',DURATION=2000,EASE='cubic-bezier(.45,0,.25,1)',SPARK=36,P=40;
   var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
   var mobile=matchMedia('(max-width: 991px)');
   document.querySelectorAll('[data-saeulen]').forEach(function(root){
@@ -31,11 +31,11 @@ document.addEventListener('DOMContentLoaded',function(){
       var d='M'+x+','+s+'H'+(s+r)+'A'+r+','+r+' 0 0 0 '+s+','+(s+r)+'V'+(h-s-r)+'A'+r+','+r+' 0 0 0 '+(s+r)+','+(h-s)+
         'H'+(w-s-r)+'A'+r+','+r+' 0 0 0 '+(w-s)+','+(h-s-r)+'V'+(s+r)+'A'+r+','+r+' 0 0 0 '+(w-s-r)+','+s+'H'+x;
       var svg=document.createElementNS(NS,'svg');svg.setAttribute('class','saeulen_outline');svg.setAttribute('aria-hidden','true');
-      svg.setAttribute('width',w);svg.setAttribute('height',h);
-      svg.style.left=(cr.left-sr.left-g)+'px';svg.style.top=(cr.top-sr.top-g)+'px';
-      svg.innerHTML='<path class="o-line"/><path class="o-spark"/>';
+      svg.setAttribute('width',w+2*P);svg.setAttribute('height',h+2*P);
+      svg.style.left=(cr.left-sr.left-g-P)+'px';svg.style.top=(cr.top-sr.top-g-P)+'px';
+      svg.innerHTML='<g transform="translate('+P+' '+P+')"><path class="o-line"/><path class="o-spark"/></g>';
       slide.appendChild(svg);
-      var line=svg.firstChild,spark=svg.lastChild;line.setAttribute('d',d);spark.setAttribute('d',d);
+      var line=svg.querySelector('.o-line'),spark=svg.querySelector('.o-spark');line.setAttribute('d',d);spark.setAttribute('d',d);
       var len=line.getTotalLength();line.style.strokeDasharray=len;
       if(!animate||reduce||!line.animate){line.style.strokeDashoffset=0;return;}
       line.animate([{strokeDashoffset:len},{strokeDashoffset:0}],{duration:DURATION,easing:EASE,fill:'both'});
