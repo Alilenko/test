@@ -1,0 +1,231 @@
+<style>
+/* Text: max. 10 Zeilen, der Rest im Dialog */
+.rating_card_text{display:-webkit-box;-webkit-line-clamp:10;-webkit-box-orient:vertical;overflow:hidden}
+.rating_card_text p{margin:0}
+.rating_card_text p+p{margin-top:.75em}
+[data-review-more]:not(.is-visible){display:none}
+
+/* Text-Reihe: unter jeder Bewertung eine ausgeblendete Kopie, Reihe unten abgeschnitten + Verlauf (erst wenn JS die Höhe gesetzt hat) */
+.reviews_track_text{align-items:start}
+.reviews_track_text>*{display:flex;flex-direction:column;gap:1.5rem}
+.reviews_track_text .rating_card{height:auto}
+[data-review-ghost]{pointer-events:none;user-select:none}
+.reviews_row_text.is-clipped{height:var(--reviews-clip);-webkit-mask-image:linear-gradient(#000 calc(100% - 4.5rem),transparent);mask-image:linear-gradient(#000 calc(100% - 4.5rem),transparent)}
+
+/* Laufschrift: Verschiebung um exakt eine Hälfte (in px) = nahtlos, Dauer = Strecke / Tempo */
+@keyframes reviewsMarquee{to{transform:translate3d(calc(var(--reviews-shift) * -1),0,0)}}
+.is-marquee{animation:reviewsMarquee var(--reviews-duration) linear infinite}
+.reviews_track_phones.is-marquee{animation-direction:reverse}
+@media (hover:hover){.reviews_marquee :is(.reviews_row_text,.reviews_row_phones):hover .is-marquee{animation-play-state:paused}}
+.reviews_marquee.is-offscreen .is-marquee,.is-marquee.is-focused{animation-play-state:paused}
+.is-marquee.is-reset{animation:none}
+
+/* Fokus */
+.rating_card:has(:focus-visible){outline:2px solid #a92c2c;outline-offset:-2px}
+:is([data-review-more],.reviews_dialog_close):focus-visible{outline:2px solid #a92c2c;outline-offset:2px;border-radius:2px}
+
+/* Dialog */
+.reviews_dialog .rating_card{padding:0;background:none}
+.reviews_dialog .rating_card_text{display:block;font-size:inherit}
+.reviews_dialog::backdrop{background:rgba(10,10,10,.75)}
+body:has(.reviews_dialog[open]){overflow:hidden}
+
+/* Touch-Geräte und reduzierte Bewegung: keine Laufschrift, Reihen per Wischen scrollen */
+@media (prefers-reduced-motion:reduce),(hover:none) and (pointer:coarse){
+.reviews_row_text,.reviews_row_phones{overflow-x:auto;scroll-snap-type:x proximity;scroll-padding-inline:1rem;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.reviews_row_text::-webkit-scrollbar,.reviews_row_phones::-webkit-scrollbar{display:none}
+.reviews_track_text,.reviews_track_phones{padding-inline:1rem}
+.reviews_track_text>*,.reviews_track_phones>*{scroll-snap-align:start}
+}
+</style>
+<script>
+(function(){
+  var SPEED=40;    /* Laufschrift: px pro Sekunde */
+  var PEEK=36;     /* so weit ragt die Kopie unter der höchsten Karte hervor (Figma) */
+  var MAX_SETS=20; /* Sicherung, falls Elemente noch keine Breite haben */
+  var mqMotion=matchMedia('(prefers-reduced-motion: reduce)');
+  var mqTouch=matchMedia('(hover: none) and (pointer: coarse)');
+  /* Laufschrift nur mit Maus; auf Touch-Geräten und bei reduzierter Bewegung wird gewischt */
+  function swipe(){return mqMotion.matches||mqTouch.matches;}
+
+  /* Kopie ohne doppelte ids */
+  function cleanClone(node){
+    var c=node.cloneNode(true);
+    c.removeAttribute('id');
+    c.querySelectorAll('[id]').forEach(function(el){el.removeAttribute('id');});
+    return c;
+  }
+
+  function init(sec){
+    var box=sec.querySelector('.reviews_marquee');
+    var dialog=sec.querySelector('.reviews_dialog');
+
+    function makeTrack(sel){
+      var el=sec.querySelector(sel);
+      return el&&{el:el,row:el.closest('.reviews_row_text,.reviews_row_phones')||el.parentElement,base:[].slice.call(el.children),sets:0,shift:0};
+    }
+    var text=makeTrack('.reviews_track_text');
+    var tracks=[text,makeTrack('.reviews_track_phones')].filter(Boolean);
+
+    /* Unter jede Bewertung eine Kopie – nur Deko: aria-hidden + inert (nicht fokussierbar, nicht klickbar) */
+    if(text)text.base.forEach(function(item){
+      var card=item.querySelector('[data-review-card]');
+      if(!card)return;
+      var g=cleanClone(card);
+      g.removeAttribute('data-review-card');
+      g.setAttribute('data-review-ghost','');
+      g.setAttribute('aria-hidden','true');
+      g.setAttribute('inert','');
+      item.appendChild(g);
+    });
+
+    /* "Weiterlesen" bei gekürztem Text + Höhe der Text-Reihe. Erst alles messen, dann schreiben. */
+    function updateText(){
+      var n=text&&text.base.length;
+      if(!n)return;
+      var cards=text.base.map(function(item){return item.querySelector('[data-review-card]');});
+      var cut=cards.map(function(c){var t=c&&c.querySelector('[data-review-text]');return !!t&&t.scrollHeight>t.clientHeight+1;});
+      /* Originale + Laufschrift-Kopien (gleiche Reihenfolge, daher i % n) */
+      [].forEach.call(text.el.children,function(item,i){
+        var b=item.querySelector('[data-review-card] [data-review-more]');
+        if(b)b.classList.toggle('is-visible',cut[i%n]);
+      });
+      var max=Math.max.apply(null,cards.map(function(c){return c?c.offsetHeight:0;}));
+      if(!max)return;
+      var gap=parseFloat(getComputedStyle(text.base[0]).rowGap)||0;
+      text.row.style.setProperty('--reviews-clip',Math.ceil(max+gap+PEEK)+'px');
+      text.row.classList.add('is-clipped');
+    }
+
+    function stopMarquee(t){
+      t.el.querySelectorAll(':scope>[data-clone]').forEach(function(c){c.remove();});
+      t.el.classList.remove('is-marquee','is-focused','is-reset');
+      t.sets=0;
+    }
+
+    /* Endlos-Reihe: Satz so oft wiederholen, dass eine Hälfte die Reihe füllt, dann verdoppeln.
+       Neu geklont wird nur, wenn sich die Anzahl ändert – sonst läuft die Animation ohne Sprung weiter. */
+    function updateMarquee(t){
+      if(swipe()||!t.base.length)return stopMarquee(t);
+      var first=t.base[0],last=t.base[t.base.length-1];
+      var gap=parseFloat(getComputedStyle(t.el).columnGap)||0;
+      var setW=last.offsetLeft+last.offsetWidth-first.offsetLeft+gap;
+      if(setW<1)return;
+      var sets=Math.min(MAX_SETS,Math.ceil(t.row.clientWidth/setW)||1);
+      if(sets!==t.sets){
+        stopMarquee(t);
+        var tpl=document.createDocumentFragment();
+        t.base.forEach(function(n){
+          var c=cleanClone(n);
+          c.setAttribute('data-clone','');
+          c.setAttribute('aria-hidden','true');
+          c.querySelectorAll('a,button').forEach(function(el){el.tabIndex=-1;});
+          tpl.appendChild(c);
+        });
+        for(var i=1;i<sets*2;i++)t.el.appendChild(i<sets*2-1?tpl.cloneNode(true):tpl);
+        t.sets=sets;
+      }
+      var shift=sets*setW;
+      if(Math.abs(shift-t.shift)>.5){
+        t.el.style.setProperty('--reviews-shift',shift+'px');
+        t.el.style.setProperty('--reviews-duration',shift/SPEED+'s');
+        t.shift=shift;
+      }
+      t.el.classList.add('is-marquee');
+    }
+
+    function update(){
+      updateText();
+      tracks.forEach(updateMarquee);
+    }
+    var queued=false;
+    function schedule(){
+      if(queued)return;
+      queued=true;
+      requestAnimationFrame(function(){queued=false;update();});
+    }
+    update();
+
+    /* Neu berechnen, wenn sich Breite der Reihe oder Größe der Karten ändert (Resize, Schriften, Bilder) */
+    if('ResizeObserver' in window){
+      var ro=new ResizeObserver(schedule);
+      tracks.forEach(function(t){ro.observe(t.row);t.base.forEach(function(n){ro.observe(n);});});
+    }else addEventListener('resize',schedule);
+    [mqMotion,mqTouch].forEach(function(m){if(m.addEventListener)m.addEventListener('change',schedule);});
+
+    /* Animation anhalten, solange die Sektion nicht sichtbar ist */
+    if(box&&'IntersectionObserver' in window){
+      new IntersectionObserver(function(e){box.classList.toggle('is-offscreen',!e[e.length-1].isIntersecting);}).observe(box);
+    }
+
+    /* Mausklick auf Kopien setzt keinen Fokus in den aria-hidden-Bereich */
+    sec.addEventListener('mousedown',function(e){
+      if(e.target.closest('[data-clone] a,[data-clone] button'))e.preventDefault();
+    });
+
+    /* Tastatur (nur Laufschrift): Reihe anhalten; liegt die Karte außerhalb, Animation stoppen und hinscrollen */
+    tracks.forEach(function(t){
+      t.el.addEventListener('focusin',function(e){
+        if(!t.el.classList.contains('is-marquee')||!e.target.matches(':focus-visible'))return;
+        t.el.classList.add('is-focused');
+        var item=e.target.closest('.w-dyn-item')||e.target;
+        var rr=t.row.getBoundingClientRect(),r=item.getBoundingClientRect();
+        if(r.left>=rr.left&&r.right<=rr.right)return;
+        t.el.classList.add('is-reset');
+        r=item.getBoundingClientRect();
+        t.row.scrollLeft+=r.left-rr.left-(rr.width-r.width)/2;
+      });
+      t.el.addEventListener('focusout',function(e){
+        if(!t.el.classList.contains('is-marquee')||t.el.contains(e.relatedTarget))return;
+        t.el.classList.remove('is-focused','is-reset');
+        t.row.scrollLeft=0;
+      });
+    });
+
+    if(!dialog)return;
+    var body=dialog.querySelector('.reviews_dialog_body');
+    var image=dialog.querySelector('.reviews_dialog_image');
+
+    function open(trigger){
+      var isReview=trigger.hasAttribute('data-review-more');
+      if(isReview){
+        var card=trigger.closest('[data-review-card]');
+        if(!card||!body)return;
+        var c=cleanClone(card);
+        var more=c.querySelector('[data-review-more]');
+        if(more)more.remove();
+        body.replaceChildren(c);
+      }else{
+        var img=trigger.querySelector('img');
+        if(!img||!image)return;
+        image.src=img.currentSrc||img.src;
+        image.alt=img.alt;
+      }
+      dialog.setAttribute('aria-label',isReview?'Bewertung':'Kundenfeedback');
+      if(body)body.hidden=!isReview;
+      if(image)image.hidden=isReview;
+      if(!dialog.open)dialog.showModal();
+    }
+    function triggerOf(e){
+      var t=e.target.closest('[data-review-more],[data-review-zoom]');
+      return t&&!dialog.contains(t)?t:null;
+    }
+    sec.addEventListener('click',function(e){
+      var t=triggerOf(e);
+      if(t){e.preventDefault();open(t);}
+    });
+    /* Links mit role="button" reagieren auch auf die Leertaste */
+    sec.addEventListener('keydown',function(e){
+      var t=e.key===' '&&triggerOf(e);
+      if(t){e.preventDefault();open(t);}
+    });
+    /* Schließen: Button oder Klick auf den Hintergrund (Esc macht der Browser) */
+    dialog.addEventListener('click',function(e){
+      if(e.target===dialog||e.target.closest('.reviews_dialog_close'))dialog.close();
+    });
+  }
+
+  function start(){document.querySelectorAll('[data-reviews]').forEach(init);}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();
+</script>
