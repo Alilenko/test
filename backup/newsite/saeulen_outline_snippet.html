@@ -1,0 +1,43 @@
+<style>
+/* Profit-System: goldene Kontur läuft beim Aktivieren einer Karte einmal um die Karte (startet am Punkt unter dem Tab) */
+.saeulen_outline{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3;overflow:visible}
+.saeulen_outline path{fill:none;stroke:#e1bf6e;stroke-width:2;stroke-linecap:round;filter:drop-shadow(0 0 6px rgba(225,191,110,.55))}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded',function(){
+  var NS='http://www.w3.org/2000/svg',DURATION=1200;
+  var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var mobile=matchMedia('(max-width: 991px)');
+  document.querySelectorAll('[data-saeulen]').forEach(function(root){
+    var el=root.querySelector('.saeulen_slider');
+    if(!el||!el.swiper)return;
+    var sw=el.swiper,seen=false;
+    function cardOf(i){var s=sw.slides[i];return s&&(s.querySelector('[data-saeule-card],.saeulen_item,.saeulen_card')||s);}
+    /* Pfad: vom Punkt nach links, einmal gegen den Uhrzeigersinn um die Karte, zurück zum Punkt */
+    function pathFor(card){
+      var w=card.clientWidth,h=card.clientHeight,s=1;
+      var r=Math.max(0,Math.min(parseFloat(getComputedStyle(card).borderTopLeftRadius)||0,w/2,h/2)-s);
+      var x=s+r,tab=root.querySelector('.saeulen_tab.is-active');
+      if(tab&&!mobile.matches){var t=tab.getBoundingClientRect(),c=card.getBoundingClientRect();x=t.left+t.width/2-c.left;}
+      x=Math.min(Math.max(x,s+r),w-s-r);
+      return 'M'+x+','+s+'H'+(s+r)+'A'+r+','+r+' 0 0 0 '+s+','+(s+r)+'V'+(h-s-r)+'A'+r+','+r+' 0 0 0 '+(s+r)+','+(h-s)+
+        'H'+(w-s-r)+'A'+r+','+r+' 0 0 0 '+(w-s)+','+(h-s-r)+'V'+(s+r)+'A'+r+','+r+' 0 0 0 '+(w-s-r)+','+s+'H'+x;
+    }
+    function draw(animate){
+      sw.slides.forEach(function(sl,i){var o=cardOf(i).querySelector(':scope>.saeulen_outline');if(o&&i!==sw.activeIndex)o.remove();});
+      var card=cardOf(sw.activeIndex);if(!card)return;
+      var svg=card.querySelector(':scope>.saeulen_outline');
+      if(!svg){svg=document.createElementNS(NS,'svg');svg.setAttribute('class','saeulen_outline');svg.setAttribute('aria-hidden','true');svg.appendChild(document.createElementNS(NS,'path'));card.appendChild(svg);}
+      var p=svg.firstChild;p.setAttribute('d',pathFor(card));
+      var len=p.getTotalLength();p.style.strokeDasharray=len;p.style.strokeDashoffset=0;
+      if(animate&&!reduce&&p.animate)p.animate([{strokeDashoffset:len},{strokeDashoffset:0}],{duration:DURATION,easing:'cubic-bezier(.45,0,.25,1)'});
+    }
+    sw.on('slideChange',function(){draw(true);});
+    /* Erste Karte: Kontur erst zeichnen, wenn die Sektion sichtbar wird */
+    if('IntersectionObserver' in window){
+      new IntersectionObserver(function(e,o){if(e[0].isIntersecting&&!seen){seen=true;draw(true);o.disconnect();}},{threshold:.35}).observe(cardOf(sw.activeIndex)||el);
+    }else draw(false);
+    var tm;addEventListener('resize',function(){clearTimeout(tm);tm=setTimeout(function(){if(seen)draw(false);},150);});
+  });
+});
+</script>
