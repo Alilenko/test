@@ -1,0 +1,205 @@
+<style>
+.rating_card_text{display:-webkit-box;-webkit-line-clamp:10;-webkit-box-orient:vertical;overflow:hidden}
+.rating_card_text p{margin:0}
+.rating_card_text p+p{margin-top:.75em}
+[data-review-more]:not(.is-visible){display:none}
+.reviews_dialog .rating_card{padding:0;background:none}
+.reviews_dialog .rating_card_text{display:block;font-size:inherit}
+.reviews_dialog::backdrop{background:rgba(10,10,10,.75)}
+body:has(.reviews_dialog[open]){overflow:hidden}
+/* Text-Bewertungen: zweite, ausgeblendete Karte unter jeder Bewertung (Reihe unten abgeschnitten + Verlauf) */
+.reviews_track_text{align-items:start}
+.reviews_track_text>*{display:flex;flex-direction:column;gap:1.5rem}
+.reviews_track_text .rating_card{height:auto}
+.reviews_row_text{height:var(--reviews-clip,auto);-webkit-mask-image:linear-gradient(#000 calc(100% - 4.5rem),transparent);mask-image:linear-gradient(#000 calc(100% - 4.5rem),transparent)}
+[data-review-ghost]{pointer-events:none;user-select:none}
+@keyframes reviewsMarquee{to{transform:translate3d(-50%,0,0)}}
+.is-marquee{padding-right:1.5rem;animation:reviewsMarquee var(--reviews-duration,60s) linear infinite}
+.reviews_track_phones.is-marquee{animation-direction:reverse}
+@media (hover:hover){.reviews_marquee :is(.reviews_row_text,.reviews_row_phones):hover .is-marquee{animation-play-state:paused}}
+.reviews_marquee.is-offscreen .is-marquee{animation-play-state:paused}
+.is-marquee.is-focused{animation-play-state:paused}
+.is-marquee.is-reset{animation:none}
+.rating_card:has(:focus-visible){outline:2px solid #a92c2c;outline-offset:-2px}
+:is([data-review-more],.reviews_dialog_close):focus-visible{outline:2px solid #a92c2c;outline-offset:2px;border-radius:2px}
+/* Touch-Geräte (und reduzierte Bewegung): keine Laufschrift, Reihen per Wischen scrollen */
+@media (prefers-reduced-motion:reduce),(hover:none) and (pointer:coarse){
+.reviews_row_text,.reviews_row_phones{overflow-x:auto;scroll-snap-type:x proximity;scroll-padding-inline:1rem;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.reviews_row_text::-webkit-scrollbar,.reviews_row_phones::-webkit-scrollbar{display:none}
+.reviews_track_text,.reviews_track_phones{padding-inline:1rem}
+.reviews_track_text>*,.reviews_track_phones>*{scroll-snap-align:start}
+}
+</style>
+<script>
+(function(){
+  var SPEED=40; /* px pro Sekunde */
+  var PEEK=36;  /* so viel ragt die zweite Karte unter der höchsten Karte hervor (wie im Figma) */
+  /* Laufschrift nur mit Maus; auf Touch-Geräten und bei reduzierter Bewegung wird gewischt */
+  var swipe=matchMedia('(prefers-reduced-motion: reduce)').matches||matchMedia('(hover: none) and (pointer: coarse)').matches;
+
+  /* Text gekürzt? Dann "Weiterlesen" zeigen */
+  function updateMore(sec){
+    sec.querySelectorAll('[data-review-card]').forEach(function(card){
+      var t=card.querySelector('[data-review-text]'),b=card.querySelector('[data-review-more]');
+      if(t&&b)b.classList.toggle('is-visible',t.scrollHeight>t.clientHeight+1);
+    });
+  }
+
+  /* Unter jede Bewertung eine Kopie setzen – nur Deko: unsichtbar für Screenreader, nicht fokussierbar, nicht klickbar */
+  function ghosts(track){
+    if(!track)return;
+    [].slice.call(track.children).forEach(function(item){
+      var card=item.querySelector('[data-review-card]');
+      if(!card||item.querySelector('[data-review-ghost]'))return;
+      var g=card.cloneNode(true);
+      g.removeAttribute('data-review-card');
+      g.setAttribute('data-review-ghost','');
+      g.setAttribute('aria-hidden','true');
+      g.inert=true;
+      g.querySelectorAll('[id]').forEach(function(el){el.removeAttribute('id');});
+      g.querySelectorAll('a,button').forEach(function(el){el.tabIndex=-1;});
+      item.appendChild(g);
+    });
+  }
+
+  /* Reihe so hoch wie die höchste Karte + Abstand + kleiner Rest der Kopie */
+  function clip(track){
+    var row=track&&track.closest('.reviews_row_text');
+    if(!row)return;
+    var max=0;
+    track.querySelectorAll('[data-review-card]').forEach(function(c){max=Math.max(max,c.offsetHeight);});
+    if(!max)return;
+    var gap=parseFloat(getComputedStyle(track.children[0]).rowGap)||24;
+    row.style.setProperty('--reviews-clip',Math.ceil(max+gap+PEEK)+'px');
+  }
+
+  /* Endlos-Reihe: Einträge duplizieren, bis eine Hälfte breiter als die Reihe ist */
+  function marquee(track){
+    if(!track)return;
+    track.querySelectorAll('[data-clone]').forEach(function(c){c.remove();});
+    track.classList.remove('is-marquee');
+    var base=[].slice.call(track.children);
+    if(!base.length)return;
+    function add(list){
+      list.forEach(function(n){
+        var c=n.cloneNode(true);
+        c.setAttribute('data-clone','');
+        c.setAttribute('aria-hidden','true');
+        /* Duplikate: nicht per Tab erreichbar, und ein Mausklick setzt keinen Fokus in den versteckten Bereich */
+        c.querySelectorAll('a,button').forEach(function(el){
+          el.tabIndex=-1;
+          el.addEventListener('mousedown',function(e){e.preventDefault();});
+        });
+        track.appendChild(c);
+      });
+    }
+    var guard=0;
+    while(track.scrollWidth<track.parentElement.clientWidth&&guard++<20)add(base);
+    add([].slice.call(track.children));
+    track.style.setProperty('--reviews-duration',Math.max(20,track.scrollWidth/2/SPEED)+'s');
+    track.classList.add('is-marquee');
+  }
+
+  function init(sec){
+    var rows=sec.querySelector('.reviews_marquee');
+    var text=sec.querySelector('.reviews_track_text');
+    var phones=sec.querySelector('.reviews_track_phones');
+    var dialog=sec.querySelector('.reviews_dialog');
+
+    ghosts(text);
+    function build(){
+      updateMore(sec);
+      clip(text);
+      if(swipe)return;
+      marquee(text);
+      marquee(phones);
+    }
+    build();
+    addEventListener('load',function(){updateMore(sec);clip(text);});
+
+    /* Bei Breitenänderung neu aufbauen (z. B. Fenster vergrößert, Tablet gedreht) */
+    var lastWidth=innerWidth,timer;
+    addEventListener('resize',function(){
+      clearTimeout(timer);
+      timer=setTimeout(function(){
+        if(innerWidth===lastWidth){updateMore(sec);clip(text);return;}
+        lastWidth=innerWidth;
+        build();
+      },200);
+    });
+
+    /* Animation anhalten, solange die Sektion nicht sichtbar ist */
+    if(!swipe&&rows&&'IntersectionObserver' in window){
+      new IntersectionObserver(function(entries){
+        rows.classList.toggle('is-offscreen',!entries[entries.length-1].isIntersecting);
+      }).observe(rows);
+    }
+
+    /* Tastatur (nur Laufschrift): Reihe anhalten und zur fokussierten Karte scrollen */
+    [text,phones].forEach(function(track){
+      if(!track)return;
+      var row=track.closest('.reviews_row_text,.reviews_row_phones');
+      track.addEventListener('focusin',function(e){
+        if(!track.classList.contains('is-marquee')||!e.target.matches(':focus-visible'))return;
+        track.classList.add('is-focused');
+        var item=e.target.closest('.w-dyn-item')||e.target;
+        var r=item.getBoundingClientRect(),rr=row.getBoundingClientRect();
+        if(r.left>=rr.left&&r.right<=rr.right)return; /* sichtbar: nur pausieren */
+        track.classList.add('is-reset');
+        r=item.getBoundingClientRect();
+        row.scrollLeft+=r.left-rr.left-(rr.width-r.width)/2;
+      });
+      track.addEventListener('focusout',function(e){
+        if(!track.classList.contains('is-marquee')||track.contains(e.relatedTarget))return;
+        track.classList.remove('is-focused','is-reset');
+        row.scrollLeft=0;
+      });
+    });
+
+    if(!dialog)return;
+    var body=dialog.querySelector('.reviews_dialog_body');
+    var image=dialog.querySelector('.reviews_dialog_image');
+
+    function openFrom(trigger){
+      var isReview=trigger.hasAttribute('data-review-more');
+      if(isReview){
+        var orig=trigger.closest('[data-review-card]');
+        if(!orig||!body)return;
+        var card=orig.cloneNode(true);
+        var more=card.querySelector('[data-review-more]');
+        if(more)more.remove();
+        body.replaceChildren(card);
+      }else{
+        var src=trigger.querySelector('img');
+        if(!src||!image)return;
+        image.src=src.currentSrc||src.src;
+        image.alt=src.alt;
+      }
+      dialog.setAttribute('aria-label',isReview?'Bewertung':'Kundenfeedback');
+      if(body)body.hidden=!isReview;
+      if(image)image.hidden=isReview;
+      dialog.showModal();
+    }
+
+    sec.addEventListener('click',function(e){
+      var trigger=e.target.closest('[data-review-more],[data-review-zoom]');
+      if(!trigger||dialog.contains(trigger))return;
+      e.preventDefault();
+      openFrom(trigger);
+    });
+    /* Links mit role="button" sollen auch auf die Leertaste reagieren */
+    sec.addEventListener('keydown',function(e){
+      if(e.key!==' ')return;
+      var trigger=e.target.closest('[data-review-more],[data-review-zoom]');
+      if(trigger){e.preventDefault();openFrom(trigger);}
+    });
+    /* Schließen: Button oder Klick auf den Hintergrund (Esc macht der Browser) */
+    dialog.addEventListener('click',function(e){
+      if(e.target===dialog||e.target.closest('.reviews_dialog_close'))dialog.close();
+    });
+  }
+
+  function start(){document.querySelectorAll('[data-reviews]').forEach(init);}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();
+</script>
