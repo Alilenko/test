@@ -1,0 +1,222 @@
+<style>
+.saeulen_tab.is-active{background-image:linear-gradient(159deg,rgba(255,255,255,.15) 0%,rgba(255,255,255,.05) 100%);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
+.saeulen_tab.is-active .saeulen_tab_name{color:#fff}
+.saeulen_tab.is-active::after{content:"";position:absolute;left:50%;top:100%;width:2px;height:3.375rem;transform:translateX(-50%);border-radius:2px;background:linear-gradient(180deg,rgba(235,50,50,0) 0%,rgba(235,50,50,.85) 45%,#e1bf6e 100%);box-shadow:0 0 14px rgba(235,50,50,.55);pointer-events:none;z-index:2}
+.saeulen_tab.is-active::before{content:"";position:absolute;left:50%;top:calc(100% + 3.375rem - 6px);width:12px;height:12px;transform:translateX(-50%);border-radius:50%;background:#eed595;box-shadow:0 0 0 4px rgba(225,191,110,.25),0 0 18px 4px rgba(225,191,110,.8);pointer-events:none;z-index:2}
+:is(.saeulen_tab,[data-saeulen] .slider_arrow):focus-visible{outline:2px solid #e1bf6e;outline-offset:2px}
+.saeulen_slide{position:relative}
+.saeulen_slider.swiper-initialized .saeulen_slide:not([inert]){opacity:1}
+.saeulen_outline{position:absolute;pointer-events:none;z-index:3;overflow:visible}
+.saeulen_outline path{fill:none;stroke:#e1bf6e;stroke-width:1.5;stroke-linecap:round;filter:drop-shadow(0 0 6px rgba(225,191,110,.35))}
+.saeulen_card_list ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:.875rem}
+.saeulen_card_list li{position:relative;margin:0;padding-left:2.125rem}
+.saeulen_card_list li::before{content:"";position:absolute;left:0;top:.2em;width:1.125rem;height:1.125rem;background-color:#e1bf6e;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M400-304 240-464l56-56 104 104 264-264 56 56-320 320Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M400-304 240-464l56-56 104 104 264-264 56 56-320 320Z'/%3E%3C/svg%3E") center/contain no-repeat}
+.saeulen_card_list strong{color:#fff;font-weight:700}
+@media (max-width:991px){.saeulen_tab.is-active::after,.saeulen_tab.is-active::before{display:none}}
+@media (prefers-reduced-motion:reduce){.saeulen_slide,.saeulen_tab,.saeulen_tab_name{transition:none}}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof Swiper === 'undefined') return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const PAD = 40;
+  const DURATION = 3000;
+  const EASING = 'cubic-bezier(.37,0,.63,1)';
+  const SPEED = 600;
+  const mqReduce = matchMedia('(prefers-reduced-motion: reduce)');
+  const mqMobile = matchMedia('(max-width: 991px)');
+
+  const pressable = (el, fn) => {
+    el.addEventListener('click', e => { e.preventDefault(); fn(); });
+    el.addEventListener('keydown', e => { if (e.key === ' ') { e.preventDefault(); fn(); } });
+  };
+
+  document.querySelectorAll('[data-saeulen]').forEach((root, r) => {
+    const el = root.querySelector('.saeulen_slider');
+    if (!el || el.swiper) return;
+    const slides = [...el.querySelectorAll('.saeulen_slide')];
+    if (!slides.length) return;
+    const tabs = [...root.querySelectorAll('.saeulen_tab')];
+    const tabList = root.querySelector('.saeulen_tabs_list');
+    const scroller = root.querySelector('.saeulen_tabs');
+    const arrows = [root.querySelector('[data-saeulen-prev]'), root.querySelector('[data-saeulen-next]')];
+    const last = slides.length - 1;
+    let current = -1;
+
+    if (tabList) {
+      tabList.setAttribute('role', 'tablist');
+      tabList.setAttribute('aria-label', `Die ${slides.length} Säulen`);
+    }
+    slides.forEach((slide, i) => {
+      const id = `saeule-${r}-${i}`;
+      slide.id = id;
+      slide.setAttribute('role', 'tabpanel');
+      const tab = tabs[i];
+      if (tab) {
+        tab.id = `${id}-tab`;
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-controls', id);
+        slide.setAttribute('aria-labelledby', tab.id);
+      }
+      const label = slide.querySelector('[data-saeule-next-name]');
+      const name = slides[(i + 1) % slides.length].querySelector('.saeulen_card_name');
+      if (label && name) label.textContent = label.getAttribute('data-saeule-next-name') + name.textContent.trim();
+    });
+
+    const swiper = new Swiper(el, {
+      wrapperClass: 'saeulen_list',
+      slideClass: 'saeulen_slide',
+      slidesPerView: 'auto',
+      spaceBetween: 32,
+      speed: mqReduce.matches ? 0 : SPEED,
+      grabCursor: true,
+      navigation: { prevEl: arrows[0], nextEl: arrows[1], disabledClass: 'is-disabled' },
+      a11y: { enabled: false },
+      breakpoints: { 0: { spaceBetween: 16 }, 768: { spaceBetween: 24 }, 992: { spaceBetween: 32 } }
+    });
+
+    let svg = null;
+    let path = null;
+    let anim = null;
+    let drawn = -1;
+    let lastKey = '';
+    let seen = false;
+    const cardOf = i => slides[i].querySelector('[data-saeule-card],.saeulen_item,.saeulen_card') || slides[i];
+
+    const clearOutline = () => {
+      if (anim) anim.cancel();
+      if (svg) svg.remove();
+      anim = null;
+      drawn = -1;
+      lastKey = '';
+    };
+
+    const drawOutline = animate => {
+      const slide = slides[current];
+      const card = cardOf(current);
+      const cr = card.getBoundingClientRect();
+      const sr = slide.getBoundingClientRect();
+      const tab = !mqMobile.matches && tabs[current];
+      const tr = tab && tab.getBoundingClientRect();
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const g = tr ? Math.min(12, Math.max(3, cr.top - (tr.bottom + 3.375 * rem))) : 6;
+      const w = cr.width + 2 * g;
+      const h = cr.height + 2 * g;
+      const s = 1;
+      const rad = Math.max(0, Math.min((parseFloat(getComputedStyle(card).borderTopLeftRadius) || 0) + g, w / 2, h / 2) - s);
+      const x = Math.min(Math.max(tr ? tr.left + tr.width / 2 - cr.left + g : s + rad, s + rad), w - s - rad);
+      const arc = (ex, ey) => `A${rad},${rad} 0 0 0 ${ex},${ey}`;
+      const d = `M${x},${s}H${s + rad}${arc(s, s + rad)}V${h - s - rad}${arc(s + rad, h - s)}H${w - s - rad}${arc(w - s, h - s - rad)}V${s + rad}${arc(w - s - rad, s)}H${x}`;
+      const left = cr.left - sr.left - g - PAD;
+      const top = cr.top - sr.top - g - PAD;
+      const key = `${current}|${d}|${left}|${top}`;
+      if (!animate && key === lastKey) return;
+      lastKey = key;
+
+      if (!svg) {
+        svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('class', 'saeulen_outline');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.innerHTML = `<g transform="translate(${PAD} ${PAD})"><path/></g>`;
+        path = svg.querySelector('path');
+      }
+      svg.setAttribute('width', w + 2 * PAD);
+      svg.setAttribute('height', h + 2 * PAD);
+      svg.style.left = `${left}px`;
+      svg.style.top = `${top}px`;
+      path.setAttribute('d', d);
+      if (svg.parentNode !== slide) slide.appendChild(svg);
+
+      const len = path.getTotalLength();
+      path.style.strokeDasharray = len;
+      path.style.strokeDashoffset = 0;
+      if (anim) anim.cancel();
+      anim = animate && !mqReduce.matches && path.animate
+        ? path.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], { duration: DURATION, easing: EASING, fill: 'backwards' })
+        : null;
+      drawn = current;
+    };
+
+    const showOutline = () => {
+      if (seen && drawn !== current) drawOutline(true);
+    };
+
+    const centerTab = () => {
+      const tab = tabs[current];
+      if (!tab || !scroller || scroller.scrollWidth <= scroller.clientWidth) return;
+      scroller.scrollTo({ left: tab.offsetLeft - (scroller.clientWidth - tab.offsetWidth) / 2, behavior: mqReduce.matches ? 'auto' : 'smooth' });
+    };
+
+    const syncArrows = () => {
+      arrows.forEach(a => { if (a) a.setAttribute('aria-disabled', a.classList.contains('is-disabled')); });
+    };
+
+    const sync = () => {
+      const i = Math.min(swiper.activeIndex, last);
+      if (i === current) return;
+      current = i;
+      tabs.forEach((tab, t) => {
+        const on = t === i;
+        tab.classList.toggle('is-active', on);
+        tab.setAttribute('aria-selected', on);
+        tab.tabIndex = on ? 0 : -1;
+      });
+      slides.forEach((slide, t) => { slide.inert = t !== i; });
+      clearOutline();
+      centerTab();
+    };
+
+    const goTo = (i, focusOptions) => {
+      swiper.slideTo(i);
+      if (focusOptions && tabs[i]) tabs[i].focus(focusOptions);
+    };
+
+    tabs.forEach((tab, i) => {
+      tab.addEventListener('click', e => { e.preventDefault(); goTo(i); });
+      tab.addEventListener('keydown', e => {
+        const keys = { ArrowRight: (i + 1) % tabs.length, ArrowLeft: (i - 1 + tabs.length) % tabs.length, Home: 0, End: tabs.length - 1 };
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTo(i); }
+        else if (e.key in keys) { e.preventDefault(); goTo(keys[e.key], {}); }
+      });
+    });
+    arrows.forEach(a => { if (a) a.addEventListener('keydown', e => { if (e.key === ' ') { e.preventDefault(); a.click(); } }); });
+    arrows.forEach(a => { if (a) a.addEventListener('click', e => e.preventDefault()); });
+    root.querySelectorAll('[data-saeule-next]').forEach(btn => {
+      btn.setAttribute('role', 'button');
+      pressable(btn, () => goTo(current >= last ? 0 : current + 1, { preventScroll: true }));
+    });
+
+    swiper.on('slideChange', sync);
+    swiper.on('transitionEnd', showOutline);
+    swiper.on('toEdge fromEdge', syncArrows);
+
+    let queued = false;
+    swiper.on('resize', () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        sync();
+        if (seen) drawOutline(false);
+      });
+    });
+    const onMotionChange = () => { swiper.params.speed = mqReduce.matches ? 0 : SPEED; };
+    if (mqReduce.addEventListener) mqReduce.addEventListener('change', onMotionChange);
+    else mqReduce.addListener(onMotionChange);
+
+    sync();
+    syncArrows();
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((entries, observer) => {
+        if (!entries[0].isIntersecting) return;
+        observer.disconnect();
+        seen = true;
+        showOutline();
+      }, { threshold: 0.35 }).observe(cardOf(current));
+    } else {
+      seen = true;
+      drawOutline(false);
+    }
+  });
+});
+</script>
