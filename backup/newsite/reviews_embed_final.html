@@ -187,7 +187,8 @@ body:has(.reviews_dialog[open]){overflow:hidden}
         a.currentTime=Math.min((t.el.matches('.reviews_track_phones')?1-p:p)*dur,dur-1);
       });
       t.el.addEventListener('focusout',function(e){
-        if(!t.el.classList.contains('is-marquee')||t.el.contains(e.relatedTarget))return;
+        /* Fokus geht in den Dialog: Reihe bleibt angehalten, nach dem Schließen kein Sprung */
+        if(!t.el.classList.contains('is-marquee')||t.el.contains(e.relatedTarget)||(dialog&&dialog.contains(e.relatedTarget)))return;
         t.el.classList.remove('is-focused');
         t.row.scrollLeft=0;
       });
