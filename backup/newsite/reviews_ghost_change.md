@@ -6,7 +6,9 @@ Embed element: b0e08f6a-f017-16d1-7047-ecdd1670d314 (section [data-reviews] b0e0
 2. In the script remove function `ghosts(...)`, function `clip()`, the call `ghosts(text);` in init, and `clip();` calls in build() and the load listener.
 Everything else is unchanged (full new code: reviews_embed_after_ghost.html).
 
-## Refactor (applied in Webflow, new site)
+## Refactor (superseded)
+
+## Final (applied in Webflow, new site): reviews_embed_final.html — previous live version: reviews_embed_refactor.html
 - New code: reviews_embed_refactor.html
 - Before refactor (current live in Webflow): reviews_embed_before_refactor.html
 - Test: reviews_refactor_test.js (Playwright, compares old vs new)
