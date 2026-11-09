@@ -13,5 +13,5 @@ Everything else is unchanged (full new code: reviews_embed_after_ghost.html).
 - Before refactor (current live in Webflow): reviews_embed_before_refactor.html
 - Test: reviews_refactor_test.js (Playwright, compares old vs new)
 
-## ES6 version (const/let, no comments) — reviews_embed_es6.html (not yet applied); previous: reviews_embed_before_es6.html
-## Säulen refactor — saeulen_embed_refactor.html (not yet applied); previous live: saeulen_embed_before_refactor.html; test: saeulen_refactor_test.js
+## ES6 version (const/let, no comments) — reviews_embed_es6.html (APPLIED in Webflow); previous: reviews_embed_before_es6.html
+## Säulen refactor — saeulen_embed_refactor.html (APPLIED in Webflow); previous live: saeulen_embed_before_refactor.html; test: saeulen_refactor_test.js
