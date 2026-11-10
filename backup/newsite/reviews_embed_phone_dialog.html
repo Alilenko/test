@@ -1,0 +1,258 @@
+<style>
+.rating_card_text{display:-webkit-box;-webkit-line-clamp:10;-webkit-box-orient:vertical;overflow:hidden}
+.rating_card_text p{margin:0}
+.rating_card_text p+p{margin-top:.75em}
+[data-review-more]:not(.is-visible){display:none}
+.reviews_track_text{align-items:start}
+.reviews_track_text>*{display:flex;flex-direction:column;gap:1.5rem}
+.reviews_track_text .rating_card{height:auto}
+[data-review-ghost]{pointer-events:none;user-select:none}
+.reviews_row_text.is-clipped{height:var(--reviews-clip);-webkit-mask-image:linear-gradient(#000 calc(100% - 4.5rem),transparent);mask-image:linear-gradient(#000 calc(100% - 4.5rem),transparent)}
+@keyframes reviewsMarquee{to{transform:translate3d(calc(var(--reviews-shift) * -1),0,0)}}
+.is-marquee{animation:reviewsMarquee var(--reviews-duration) linear infinite}
+.reviews_track_phones.is-marquee{animation-direction:reverse}
+@media (hover:hover){.reviews_marquee :is(.reviews_row_text,.reviews_row_phones):hover .is-marquee{animation-play-state:paused}}
+.reviews_marquee.is-offscreen .is-marquee,.is-marquee.is-focused{animation-play-state:paused}
+[data-clone] :is([data-review-more],[data-review-zoom]){cursor:pointer}
+.rating_card:has(:focus-visible){outline:2px solid #a92c2c;outline-offset:-2px}
+:is([data-review-more],.reviews_dialog_close):focus-visible{outline:2px solid #a92c2c;outline-offset:2px;border-radius:2px}
+.reviews_dialog .rating_card{padding:0;background:none}
+.reviews_dialog .rating_card_text{display:block;font-size:inherit}
+.reviews_dialog::backdrop{background:rgba(10,10,10,.75)}
+.reviews_dialog_phone{display:flex;align-items:center;justify-content:center;width:min(100%,calc((100dvh - 9rem) * 210 / 434));aspect-ratio:210/434;margin:0 auto;overflow:hidden;background:center/contain no-repeat;container-type:inline-size}
+.reviews_dialog_phone[hidden]{display:none}
+.reviews_dialog_phone .reviews_dialog_image{width:90.99%;margin:11.27cqw 4.51cqw 10.52cqw;border-radius:13.15cqw}
+body:has(.reviews_dialog[open]){overflow:hidden}
+@media (prefers-reduced-motion:reduce),(hover:none) and (pointer:coarse){
+.reviews_row_text,.reviews_row_phones{overflow-x:auto;scroll-snap-type:x proximity;scroll-padding-inline:1rem;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.reviews_row_text::-webkit-scrollbar,.reviews_row_phones::-webkit-scrollbar{display:none}
+.reviews_track_text,.reviews_track_phones{padding-inline:1rem}
+.reviews_track_text>*,.reviews_track_phones>*{scroll-snap-align:start}
+}
+</style>
+<script>
+(() => {
+  const SPEED = 40;
+  const PEEK = 36;
+  const MAX_SETS = 20;
+  const mqMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const mqTouch = matchMedia('(hover: none) and (pointer: coarse)');
+  const swipe = () => mqMotion.matches || mqTouch.matches;
+
+  const cleanClone = node => {
+    const c = node.cloneNode(true);
+    c.removeAttribute('id');
+    c.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+    return c;
+  };
+  const stripLinks = node => {
+    node.querySelectorAll('a[href]').forEach(a => {
+      a.removeAttribute('href');
+      a.removeAttribute('role');
+    });
+  };
+
+  const init = sec => {
+    if (sec.reviewsReady) return;
+    sec.reviewsReady = true;
+    const box = sec.querySelector('.reviews_marquee');
+    const dialog = sec.querySelector('.reviews_dialog');
+
+    const makeTrack = sel => {
+      const el = sec.querySelector(sel);
+      return el && { el, row: el.closest('.reviews_row_text,.reviews_row_phones') || el.parentElement, base: [...el.children], sets: 0, shift: 0 };
+    };
+    const text = makeTrack('.reviews_track_text');
+    const tracks = [text, makeTrack('.reviews_track_phones')].filter(Boolean);
+
+    if (text) text.base.forEach(item => {
+      const card = item.querySelector('[data-review-card]');
+      if (!card) return;
+      const g = cleanClone(card);
+      g.removeAttribute('data-review-card');
+      g.setAttribute('data-review-ghost', '');
+      g.setAttribute('aria-hidden', 'true');
+      g.setAttribute('inert', '');
+      stripLinks(g);
+      item.appendChild(g);
+    });
+
+    const updateText = () => {
+      const n = text && text.base.length;
+      if (!n) return;
+      const cards = text.base.map(item => item.querySelector('[data-review-card]'));
+      const cut = cards.map(c => {
+        const t = c && c.querySelector('[data-review-text]');
+        return !!t && t.scrollHeight > t.clientHeight + 1;
+      });
+      [...text.el.children].forEach((item, i) => {
+        const b = item.querySelector('[data-review-card] [data-review-more]');
+        if (b) b.classList.toggle('is-visible', cut[i % n]);
+      });
+      const max = Math.max(...cards.map(c => (c ? c.offsetHeight : 0)));
+      if (!max) return;
+      const gap = parseFloat(getComputedStyle(text.base[0]).rowGap) || 0;
+      text.row.style.setProperty('--reviews-clip', `${Math.ceil(max + gap + PEEK)}px`);
+      text.row.classList.add('is-clipped');
+    };
+
+    const removeClones = t => {
+      t.el.querySelectorAll(':scope>[data-clone]').forEach(c => c.remove());
+      t.sets = 0;
+    };
+    const stopMarquee = t => {
+      removeClones(t);
+      t.el.classList.remove('is-marquee', 'is-focused');
+    };
+
+    const updateMarquee = t => {
+      if (swipe() || !t.base.length) return stopMarquee(t);
+      const first = t.base[0].getBoundingClientRect();
+      const last = t.base[t.base.length - 1].getBoundingClientRect();
+      const gap = parseFloat(getComputedStyle(t.el).columnGap) || 0;
+      const setW = last.right - first.left + gap;
+      if (setW < 1) return;
+      const sets = Math.min(MAX_SETS, Math.ceil(t.row.clientWidth / setW) || 1);
+      if (sets !== t.sets) {
+        removeClones(t);
+        const tpl = document.createDocumentFragment();
+        t.base.forEach(n => {
+          const c = cleanClone(n);
+          c.setAttribute('data-clone', '');
+          c.setAttribute('aria-hidden', 'true');
+          stripLinks(c);
+          tpl.appendChild(c);
+        });
+        for (let i = 1; i < sets * 2; i++) t.el.appendChild(i < sets * 2 - 1 ? tpl.cloneNode(true) : tpl);
+        t.sets = sets;
+      }
+      const shift = sets * setW;
+      if (Math.abs(shift - t.shift) > 0.1) {
+        t.el.style.setProperty('--reviews-shift', `${shift}px`);
+        t.el.style.setProperty('--reviews-duration', `${shift / SPEED}s`);
+        t.shift = shift;
+      }
+      if (!t.el.classList.contains('is-marquee')) {
+        t.row.scrollLeft = 0;
+        t.el.classList.add('is-marquee');
+      }
+    };
+
+    const update = () => {
+      updateText();
+      tracks.forEach(updateMarquee);
+    };
+    let queued = false;
+    const schedule = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        update();
+      });
+    };
+    update();
+
+    if ('ResizeObserver' in window) {
+      const ro = new ResizeObserver(schedule);
+      tracks.forEach(t => {
+        ro.observe(t.row);
+        t.base.forEach(n => ro.observe(n));
+      });
+    } else {
+      addEventListener('resize', schedule);
+    }
+    [mqMotion, mqTouch].forEach(m => {
+      if (m.addEventListener) m.addEventListener('change', schedule);
+      else m.addListener(schedule);
+    });
+
+    if (box && 'IntersectionObserver' in window) {
+      new IntersectionObserver(entries => {
+        box.classList.toggle('is-offscreen', !entries[entries.length - 1].isIntersecting);
+      }).observe(box);
+    }
+
+    tracks.forEach(t => {
+      t.el.addEventListener('focusin', e => {
+        if (!t.el.classList.contains('is-marquee') || !e.target.matches(':focus-visible')) return;
+        t.el.classList.add('is-focused');
+        t.row.scrollLeft = 0;
+        const item = e.target.closest('.w-dyn-item') || e.target;
+        const rr = t.row.getBoundingClientRect();
+        const r = item.getBoundingClientRect();
+        const a = t.el.getAnimations && t.el.getAnimations()[0];
+        if (!a || (r.left >= rr.left - 1 && r.right <= rr.right + 1)) return;
+        const x = Math.min(Math.max(item.offsetLeft - (rr.width - r.width) / 2, 0), t.shift);
+        const p = x / t.shift;
+        const dur = a.effect.getComputedTiming().duration;
+        a.currentTime = Math.min((t.el.matches('.reviews_track_phones') ? 1 - p : p) * dur, dur - 1);
+      });
+      t.el.addEventListener('focusout', e => {
+        if (!t.el.classList.contains('is-marquee') || t.el.contains(e.relatedTarget) || (dialog && dialog.contains(e.relatedTarget))) return;
+        t.el.classList.remove('is-focused');
+        t.row.scrollLeft = 0;
+      });
+    });
+
+    if (!dialog) return;
+    const body = dialog.querySelector('.reviews_dialog_body');
+    const image = dialog.querySelector('.reviews_dialog_image');
+    const frame = image ? document.createElement('div') : null;
+    if (frame) {
+      frame.className = 'reviews_dialog_phone';
+      frame.hidden = true;
+      image.before(frame);
+      frame.append(image);
+      image.hidden = false;
+    }
+
+    const open = trigger => {
+      const isReview = trigger.hasAttribute('data-review-more');
+      if (isReview) {
+        const card = trigger.closest('[data-review-card]');
+        if (!card || !body) return;
+        const c = cleanClone(card);
+        const more = c.querySelector('[data-review-more]');
+        if (more) more.remove();
+        body.replaceChildren(c);
+      } else {
+        const img = trigger.querySelector('img');
+        if (!img || !image) return;
+        image.src = img.currentSrc || img.src;
+        image.alt = img.alt;
+        frame.style.backgroundImage = getComputedStyle(trigger).backgroundImage;
+      }
+      dialog.setAttribute('aria-label', isReview ? 'Bewertung' : 'Kundenfeedback');
+      if (body) body.hidden = !isReview;
+      if (frame) frame.hidden = isReview;
+      if (!dialog.open) dialog.showModal();
+    };
+    const triggerOf = e => {
+      const t = e.target.closest('[data-review-more],[data-review-zoom]');
+      return t && !dialog.contains(t) ? t : null;
+    };
+    sec.addEventListener('click', e => {
+      const t = triggerOf(e);
+      if (t) {
+        e.preventDefault();
+        open(t);
+      }
+    });
+    sec.addEventListener('keydown', e => {
+      const t = e.key === ' ' && triggerOf(e);
+      if (t) {
+        e.preventDefault();
+        open(t);
+      }
+    });
+    dialog.addEventListener('click', e => {
+      if (e.target === dialog || e.target.closest('.reviews_dialog_close')) dialog.close();
+    });
+  };
+
+  const start = () => document.querySelectorAll('[data-reviews]').forEach(init);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+</script>
