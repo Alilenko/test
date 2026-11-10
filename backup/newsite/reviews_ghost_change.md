@@ -18,3 +18,9 @@ Everything else is unchanged (full new code: reviews_embed_after_ghost.html).
 Säulen: mobile pointer version APPLIED in Webflow (saeulen_embed_mobile_pointer.html); previous: saeulen_embed_refactor.html
 Säulen: APPLIED saeulen_embed_no_mobile_outline.html (pointer reverted, outline desktop-only); previous: saeulen_embed_mobile_pointer.html
 Reviews: APPLIED reviews_embed_phone_dialog.html (phone mockup in zoom dialog); previous: reviews_embed_es6.html
+
+## ES6 cleanup (APPLIED in Webflow): backup/newsite/es6/
+- Cases embed (page, 0420d854-…6d9): cases_before/after.html
+- Team Section component embed: team_before/after.html
+- FAQ Section new component embed: faq_before/after.html
+- Page footer custom code: footer_before/after.html
