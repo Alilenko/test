@@ -1,0 +1,55 @@
+<style>
+[data-cases]{overflow:clip}
+[data-cases] .swiper{overflow:visible;touch-action:pan-y}
+[data-cases] .swiper-wrapper{box-sizing:content-box;transition-property:transform}
+[data-cases] .swiper-slide{height:auto}
+[data-cases] .swiper:not(.swiper-initialized) .swiper-wrapper{column-gap:1.25rem}
+.slider_arrow.is-disabled{opacity:.35;pointer-events:none}
+.slider_arrow:focus-visible{outline:2px solid #a92c2c;outline-offset:2px}
+.is-locked-hidden{display:none}
+.cases_link::after{content:"";display:block;flex:0 0 auto;width:1rem;height:1rem;background-color:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M647-440H160v-80h487L423-744l57-56 320 320-320 320-57-56 224-224Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M647-440H160v-80h487L423-744l57-56 320 320-320 320-57-56 224-224Z'/%3E%3C/svg%3E") center/contain no-repeat;transition:transform .2s ease}
+.cases_link:hover::after{transform:translateX(3px)}
+@media (prefers-reduced-motion:reduce){[data-cases] .swiper-wrapper{transition-duration:0s!important}.cases_link::after{transition:none}}
+</style>
+<script>
+(function(){
+  function setup(){
+    if(typeof Swiper==='undefined')return; /* Swiper kommt aus dem Footer der Seite */
+    document.querySelectorAll('[data-cases]').forEach(function(sec){
+      var el=sec.querySelector('.cases_slider .swiper');
+      if(!el||el.swiper)return;
+      var prev=sec.querySelector('[data-cases-prev]');
+      var next=sec.querySelector('[data-cases-next]');
+      var dots=sec.querySelector('[data-cases-dots]');
+      var controls=(dots||prev)&&(dots||prev).closest('.slider_controls');
+      var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var sw=new Swiper(el,{
+        slidesPerView:'auto',
+        spaceBetween:20,
+        speed:reduce?0:500,
+        grabCursor:true,
+        watchOverflow:true,
+        navigation:{prevEl:prev,nextEl:next,disabledClass:'is-disabled'},
+        pagination:dots?{el:dots,clickable:true,bulletElement:'button',bulletClass:'slider_dot',bulletActiveClass:'is-active'}:false,
+        a11y:{
+          prevSlideMessage:'Vorherige Case Study',
+          nextSlideMessage:'Nächste Case Study',
+          firstSlideMessage:'Erste Case Study',
+          lastSlideMessage:'Letzte Case Study',
+          paginationBulletMessage:'Zu Case Study {{index}}',
+          slideLabelMessage:'{{index}} von {{slidesLength}}',
+          containerRoleDescriptionMessage:'Karussell',
+          itemRoleDescriptionMessage:'Case Study'
+        },
+        breakpoints:{0:{spaceBetween:16},768:{spaceBetween:20}}
+      });
+      /* Alles passt auf den Bildschirm: Pfeile und Punkte ausblenden */
+      function update(){ if(controls)controls.classList.toggle('is-locked-hidden',!!sw.isLocked); }
+      [prev,next].forEach(function(b){ if(b)b.addEventListener('click',function(e){e.preventDefault();}); });
+      sw.on('lock unlock resize',update);
+      update();
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setup);else setup();
+})();
+</script>

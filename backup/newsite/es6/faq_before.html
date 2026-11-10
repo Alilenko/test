@@ -1,0 +1,25 @@
+<style>
+/* Nur was Webflow-Klassen nicht können: [open]-Zustand, Marker, Rich-Text-Kinder, Animation */
+.faq_item_question::-webkit-details-marker { display: none; }
+.faq_item[open] .faq_item_icon::after { transform: rotate(0deg); }
+.faq_item_question:hover .faq_item_icon { background-color: #f0d3cf; }
+.faq_item_answer_rich > :first-child { margin-top: 0; }
+.faq_item_answer_rich > :last-child { margin-bottom: 0; }
+@supports (interpolate-size: allow-keywords) {
+  .faq_item { interpolate-size: allow-keywords; }
+  .faq_item::details-content { height: 0; overflow: clip; transition: height 0.35s ease, content-visibility 0.35s allow-discrete; }
+  .faq_item[open]::details-content { height: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .faq_item_icon::after, .faq_item::details-content { transition: none; }
+}
+</style>
+<script>
+/* Erste Frage geöffnet (wie im Figma) */
+document.addEventListener('DOMContentLoaded', function () {
+document.querySelectorAll('[data-faq-light]').forEach(function (s) {
+  var first = s.querySelector('details.faq_item');
+  if (first && !s.querySelector('details.faq_item[open]')) first.open = true;
+});
+});
+</script>

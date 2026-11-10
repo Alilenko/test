@@ -1,0 +1,147 @@
+<script defer src="https://cdn.jsdelivr.net/npm/swiper@12/swiper-bundle.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+document.querySelectorAll('[data-brands-source]').forEach(function (src) {
+  var v = (src.getAttribute('value') || '').trim();
+  if (!v) return;
+  document.querySelectorAll('[data-brands-count]').forEach(function (t) { t.textContent = v; });
+});
+});
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  /* Ressourcen-Slider: kein Loop (zu wenige Items), alle Karten gleich, Pfeile mit Disabled-Zustand */
+  const resEl = document.querySelector(".res_swiper");
+  if (!resEl || typeof Swiper === "undefined") return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const resSwiper = new Swiper(resEl, {
+    slidesPerView: "auto",
+    spaceBetween: 32,
+    speed: reduce ? 0 : 600,
+    grabCursor: true,
+    watchOverflow: true,
+    navigation: {
+      prevEl: ".res_arrow_prev",
+      nextEl: ".res_arrow_next",
+      disabledClass: "is-disabled",
+    },
+    a11y: {
+      /* Kein automatisches Springen bei Fokus (sonst springt die Karte nach Klick aufs Video an Position 1) */
+      scrollOnFocus: false,
+      prevSlideMessage: "Vorherige Ressource",
+      nextSlideMessage: "Nächste Ressource",
+      firstSlideMessage: "Erste Ressource",
+      lastSlideMessage: "Letzte Ressource",
+    },
+    breakpoints: {
+      0: { spaceBetween: 16 },
+      768: { spaceBetween: 24 },
+      992: { spaceBetween: 32 },
+    },
+  });
+  /* Nur bei Tastatur (Tab): nicht vollständig sichtbare Karte in den Slider holen */
+  let viaKeyboard = false;
+  document.addEventListener("keydown", function (e) { if (e.key === "Tab") viaKeyboard = true; }, true);
+  document.addEventListener("pointerdown", function () { viaKeyboard = false; }, true);
+  resEl.addEventListener("focusin", function (e) {
+    if (!viaKeyboard) return;
+    const slide = e.target.closest(".swiper-slide");
+    if (!slide) return;
+    const r = slide.getBoundingClientRect(), c = resEl.getBoundingClientRect();
+    if (r.left >= c.left - 1 && r.right <= Math.min(c.right, window.innerWidth) + 1) return;
+    resEl.scrollLeft = 0;
+    resSwiper.slideTo(resSwiper.slides.indexOf(slide));
+  });
+});
+</script>
+
+<script>
+/* Video-Blöcke: Vorschaubild durch YouTube-/Vimeo-Player ersetzen (erst beim Klick laden) */
+document.addEventListener("DOMContentLoaded", function () {
+  function getVideoId(value, provider) {
+    if (!value) return "";
+    const input = value.trim();
+    if (!input) return "";
+    const isUrl =
+      input.includes("://") ||
+      input.startsWith("www.") ||
+      (provider === "youtube" && (input.includes("youtube.com") || input.includes("youtu.be"))) ||
+      (provider === "vimeo" && input.includes("vimeo.com"));
+    if (!isUrl) return input;
+    try {
+      const url = new URL(input.includes("://") ? input : `https://${input}`);
+      const pathParts = url.pathname.split("/").filter(Boolean);
+      if (provider === "youtube") {
+        if (url.hostname.includes("youtu.be")) return pathParts[0] || "";
+        if (url.searchParams.get("v")) return url.searchParams.get("v");
+        if (pathParts.includes("embed")) return pathParts[pathParts.indexOf("embed") + 1] || "";
+        if (pathParts.includes("shorts")) return pathParts[pathParts.indexOf("shorts") + 1] || "";
+        return "";
+      }
+      const videoIndex = pathParts.indexOf("video");
+      if (videoIndex !== -1) return pathParts[videoIndex + 1] || "";
+      return pathParts[pathParts.length - 1] || "";
+    } catch (error) {
+      return input;
+    }
+  }
+  /* Nur gültige IDs (Buchstaben, Ziffern, - und _), damit fehlerhafte CMS-Werte keine fremde Player-Adresse erzeugen */
+  function safeId(id) { return /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : ""; }
+  document.querySelectorAll("[data-youtube], [data-vimeo]").forEach(card => {
+    const youtubeId = safeId(getVideoId(card.getAttribute("data-youtube"), "youtube"));
+    const vimeoId = safeId(getVideoId(card.getAttribute("data-vimeo"), "vimeo"));
+    // YouTube hat Vorrang, wenn beides gepflegt ist
+    const provider = youtubeId ? "youtube" : vimeoId ? "vimeo" : "";
+    const videoId = youtubeId || vimeoId;
+    if (!provider || !videoId) return;
+    const videoTitle = card.getAttribute("data-video-title")?.trim() || "Video";
+    card.setAttribute("role", "button");
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("aria-label", `Video abspielen: ${videoTitle}`);
+    function playVideo() {
+      if (card.dataset.videoLoaded === "true") return;
+      card.dataset.videoLoaded = "true";
+      Array.from(card.children).forEach(child => {
+        if (child.tagName !== "IFRAME") child.hidden = true;
+      });
+      const iframe = document.createElement("iframe");
+      if (provider === "youtube") {
+        iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&controls=1&rel=0&playsinline=1&iv_load_policy=3`;
+        iframe.setAttribute("allow", "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share");
+      } else {
+        iframe.src = `https://player.vimeo.com/video/${videoId}?autoplay=1&playsinline=1`;
+        iframe.setAttribute("allow", "autoplay; fullscreen; picture-in-picture");
+      }
+      iframe.setAttribute("frameborder", "0");
+      iframe.setAttribute("allowfullscreen", "");
+      iframe.setAttribute("title", videoTitle);
+      card.appendChild(iframe);
+      card.removeAttribute("role");
+      card.removeAttribute("tabindex");
+      card.removeAttribute("aria-label");
+      // Fokus in den Player setzen, sonst springt die Tastatur-Navigation an den Seitenanfang
+      iframe.focus();
+    }
+    card.addEventListener("click", playVideo);
+    card.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        playVideo();
+      }
+    });
+  });
+  /* Button mit Attribut data-video-play startet das nächstgelegene Video (z. B. "Video ansehen" in der Ressourcen-Karte) */
+  document.addEventListener("click", function (event) {
+    const btn = event.target.closest("[data-video-play]");
+    if (!btn) return;
+    let scope = btn.parentElement, video = null;
+    while (scope && !(video = scope.querySelector("[data-youtube], [data-vimeo]"))) scope = scope.parentElement;
+    // Nur wenn die Karte ein abspielbares Video hat (gültige ID), sonst normaler Link
+    if (!video || (video.getAttribute("role") !== "button" && video.dataset.videoLoaded !== "true")) return;
+    event.preventDefault();
+    if (video.dataset.videoLoaded !== "true") video.click();
+  });
+});
+</script>
+

@@ -1,0 +1,64 @@
+<style>
+[data-cases]{overflow:clip}
+[data-cases] .swiper{overflow:visible;touch-action:pan-y}
+[data-cases] .swiper-wrapper{box-sizing:content-box;transition-property:transform}
+[data-cases] .swiper-slide{height:auto}
+[data-cases] .swiper:not(.swiper-initialized) .swiper-wrapper{column-gap:1.25rem}
+.slider_arrow.is-disabled{opacity:.35;pointer-events:none}
+.slider_arrow:focus-visible{outline:2px solid #a92c2c;outline-offset:2px}
+.is-locked-hidden{display:none}
+.cases_link::after{content:"";display:block;flex:0 0 auto;width:1rem;height:1rem;background-color:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M647-440H160v-80h487L423-744l57-56 320 320-320 320-57-56 224-224Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M647-440H160v-80h487L423-744l57-56 320 320-320 320-57-56 224-224Z'/%3E%3C/svg%3E") center/contain no-repeat;transition:transform .2s ease}
+.cases_link:hover::after{transform:translateX(3px)}
+@media (prefers-reduced-motion:reduce){[data-cases] .swiper-wrapper{transition-duration:0s!important}.cases_link::after{transition:none}}
+</style>
+<script>
+(() => {
+  const SPEED = 500;
+  const mqReduce = matchMedia('(prefers-reduced-motion: reduce)');
+
+  const setup = () => {
+    if (typeof Swiper === 'undefined') return;
+    document.querySelectorAll('[data-cases]').forEach(sec => {
+      const el = sec.querySelector('.cases_slider .swiper');
+      if (!el || el.swiper) return;
+      const prev = sec.querySelector('[data-cases-prev]');
+      const next = sec.querySelector('[data-cases-next]');
+      const dots = sec.querySelector('[data-cases-dots]');
+      const anchor = dots || prev;
+      const controls = anchor && anchor.closest('.slider_controls');
+      const sw = new Swiper(el, {
+        slidesPerView: 'auto',
+        spaceBetween: 20,
+        speed: mqReduce.matches ? 0 : SPEED,
+        grabCursor: true,
+        watchOverflow: true,
+        navigation: { prevEl: prev, nextEl: next, disabledClass: 'is-disabled' },
+        pagination: dots ? { el: dots, clickable: true, bulletElement: 'button', bulletClass: 'slider_dot', bulletActiveClass: 'is-active' } : false,
+        a11y: {
+          prevSlideMessage: 'Vorherige Case Study',
+          nextSlideMessage: 'Nächste Case Study',
+          firstSlideMessage: 'Erste Case Study',
+          lastSlideMessage: 'Letzte Case Study',
+          paginationBulletMessage: 'Zu Case Study {{index}}',
+          slideLabelMessage: '{{index}} von {{slidesLength}}',
+          containerRoleDescriptionMessage: 'Karussell',
+          itemRoleDescriptionMessage: 'Case Study'
+        },
+        breakpoints: { 0: { spaceBetween: 16 }, 768: { spaceBetween: 20 } }
+      });
+      const update = () => {
+        if (controls) controls.classList.toggle('is-locked-hidden', !!sw.isLocked);
+      };
+      [prev, next].forEach(b => { if (b) b.addEventListener('click', e => e.preventDefault()); });
+      sw.on('lock unlock resize', update);
+      update();
+      const onMotionChange = () => { sw.params.speed = mqReduce.matches ? 0 : SPEED; };
+      if (mqReduce.addEventListener) mqReduce.addEventListener('change', onMotionChange);
+      else mqReduce.addListener(onMotionChange);
+    });
+  };
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setup);
+  else setup();
+})();
+</script>

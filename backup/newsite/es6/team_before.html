@@ -1,0 +1,137 @@
+<style>
+/* Team-Slider (Swiper): nur was Webflow-Klassen nicht können */
+.team_list > .w-dyn-item { flex-shrink: 0; }
+/* Wenige Personen (unter 3): kein Slider, Karten stehen mittig */
+.team_list.is-static { justify-content: center; column-gap: 1.5rem; }
+@media screen and (max-width: 479px) { .team_list.is-static { column-gap: 1rem; } }
+/* Obere Reihe: Karte in der Mitte wird gleichzeitig mit dem Schritt größer, Nachbarn rücken zur Seite (wie im Figma) */
+.team_list.is-top .team_card { transition-duration: 0.7s; }
+.team_badge { display: none; }
+.team_list.is-top .is-current .team_card { transform: scale(1.164); }
+.team_list.is-top .is-current .team_badge { display: flex; }
+.team_list.is-top .is-current ~ .w-dyn-item .team_card { transform: translateX(8.2%); }
+.team_list.is-top .w-dyn-item:has(~ .is-current) .team_card { transform: translateX(-8.2%); }
+.team_badge_logo.w-dyn-bind-empty, .team_badge_logo:not([src]), .team_badge_logo[src=""] { display: none; }
+@media (prefers-reduced-motion: reduce) { .team_card { transition: none; } }
+</style>
+<script>
+(function () {
+  var DELAY = 2800;    /* Pause zwischen den Schritten (ms) */
+  var SPEED = 700;     /* Dauer eines Schritts (ms) */
+  var MIN_SLIDER = 3;  /* ab so vielen Personen pro Reihe läuft der Slider */
+
+  function setup() {
+    document.querySelectorAll('[data-team]').forEach(function (sec) {
+      var topList = sec.querySelector('.team_list.is-top');
+      var botList = sec.querySelector('.team_list.is-bottom');
+      if (!topList || !botList || sec.hasAttribute('data-team-ready')) return;
+      sec.setAttribute('data-team-ready', '');
+      var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var sliders = [];
+
+      /* Badge nur, wenn im CMS gepflegt */
+      sec.querySelectorAll('.team_badge').forEach(function (b) {
+        var t = b.querySelector('.team_badge_title');
+        if (!t || !t.textContent.trim()) b.remove();
+      });
+
+      function items(list) { return [].slice.call(list.children).filter(function (e) { return !e.hasAttribute('data-clone'); }); }
+      function markEl(list, el) {
+        [].forEach.call(list.children, function (e) { e.classList.remove('is-current'); });
+        if (el) el.classList.add('is-current');
+      }
+      /* Kurze Reihen auffüllen: mind. 8 Karten und 3× Bildschirmbreite (sonst warnt Swiper im Loop bzw. es entstehen Lücken).
+         Duplikate sind für Screenreader ausgeblendet. */
+      function fill(list, base) {
+        var guard = 0;
+        while ((list.scrollWidth < list.parentElement.clientWidth * 3 || list.children.length < 8) && guard++ < 20) {
+          base.forEach(function (n) {
+            var c = n.cloneNode(true);
+            c.setAttribute('data-clone', '');
+            c.setAttribute('aria-hidden', 'true');
+            c.classList.remove('is-current');
+            list.appendChild(c);
+          });
+        }
+      }
+
+      function buildRow(list, isTop) {
+        var base = items(list);
+        var row = list.closest('.team_row');
+        /* Leere Reihe ausblenden */
+        if (row) row.hidden = base.length === 0;
+        if (!base.length) return;
+        /* Zu wenige Personen: statisch und mittig, oben die mittlere Karte hervorheben */
+        if (base.length < MIN_SLIDER || typeof Swiper === 'undefined') {
+          list.classList.add('is-static');
+          if (isTop) markEl(list, base[Math.floor((base.length - 1) / 2)]);
+          return;
+        }
+        fill(list, base);
+        var s = new Swiper(list.parentElement, {
+          wrapperClass: 'team_list',
+          slideClass: 'w-dyn-item',
+          slidesPerView: 'auto',
+          centeredSlides: true,
+          loop: true,
+          speed: reduce ? 0 : SPEED,
+          grabCursor: true,
+          autoplay: reduce ? false : { delay: DELAY, disableOnInteraction: false, pauseOnMouseEnter: true, reverseDirection: !isTop },
+          breakpoints: { 0: { spaceBetween: 16 }, 768: { spaceBetween: 24 } },
+          a11y: isTop
+            ? { containerRoleDescriptionMessage: 'Karussell', itemRoleDescriptionMessage: 'Teammitglied', slideLabelMessage: '' }
+            : { enabled: false },
+          on: isTop ? { slideChange: function (sw) { markEl(list, sw.slides[sw.activeIndex]); } } : {}
+        });
+        /* Start: erste Person laut Sort Order in der Mitte (Swiper setzt im Loop sonst evtl. die letzte) */
+        s.slideToLoop(0, 0, false);
+        if (isTop) markEl(list, s.slides[s.activeIndex]);
+        /* Untere Reihe um eine halbe Karte versetzen: in der Mitte stehen zwei Karten */
+        else {
+          var sl = s.slides[s.activeIndex];
+          if (sl) list.style.marginLeft = -Math.round((sl.offsetWidth + s.params.spaceBetween) / 2) + 'px';
+        }
+        sliders.push(s);
+      }
+
+      function build() {
+        sliders.forEach(function (s) { s.destroy(true, true); });
+        sliders = [];
+        [topList, botList].forEach(function (list) {
+          list.querySelectorAll('[data-clone]').forEach(function (c) { c.remove(); });
+          list.classList.remove('is-static');
+          list.style.marginLeft = '';
+          markEl(list, null);
+        });
+        buildRow(topList, true);
+        buildRow(botList, false);
+        if (!visible) sliders.forEach(function (s) { if (s.autoplay) s.autoplay.stop(); });
+      }
+
+      var visible = true;
+      build();
+
+      /* Fenster breiter/schmaler (z. B. Tablet gedreht): neu aufbauen, damit keine Lücken entstehen */
+      var lastWidth = innerWidth, timer;
+      addEventListener('resize', function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          if (innerWidth === lastWidth) return;
+          lastWidth = innerWidth;
+          build();
+        }, 250);
+      });
+
+      /* Pause, solange die Sektion nicht sichtbar ist */
+      if (!reduce && 'IntersectionObserver' in window) {
+        new IntersectionObserver(function (entries) {
+          visible = entries[entries.length - 1].isIntersecting;
+          sliders.forEach(function (s) { if (s.autoplay) visible ? s.autoplay.start() : s.autoplay.stop(); });
+        }).observe(sec);
+      }
+    });
+  }
+  /* Swiper kommt aus dem Footer der Seite; ohne Swiper werden die Karten statisch angezeigt */
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setup); else setup();
+})();
+</script>
